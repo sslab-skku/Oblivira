@@ -207,18 +207,18 @@ void usgx_exit(int reason) {
   exit(reason);
 }
 
-void *thread_test_func(void *p) {
-  new_thread_func(global_eid);
-  return NULL;
-}
+// void *thread_test_func(void *p) {
+//   new_thread_func(global_eid);
+//   return NULL;
+// }
 
-int ucreate_thread() {
-  pthread_t thread;
-  int res = pthread_create(&thread, NULL, thread_test_func, NULL);
-  return res;
-}
+// int ucreate_thread() {
+//   pthread_t thread;
+//   int res = pthread_create(&thread, NULL, thread_test_func, NULL);
+//   return res;
+// }
 
-void hello() { printf("Hello\n"); }
+// void hello() { printf("Hello\n"); }
 
 int prepare_socket(int port) {
 

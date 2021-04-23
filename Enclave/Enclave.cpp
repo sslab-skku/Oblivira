@@ -32,19 +32,10 @@
 #include <stdarg.h>
 #include <stdio.h> /* vsnprintf */
 
-#include "TestEnclave.h"
-#include "TestEnclave_t.h" /* print_string */
-#include "tSgxSSL_api.h"
 
-#include <openssl/bn.h>
-#include <openssl/ec.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
 
-#include <openssl/ssl.h>
-#include <openssl/x509.h>
+#include "Enclave.h"
+#include "Enclave_t.h" /* print_string */
 
 #define ADD_ENTROPY_SIZE 32
 
@@ -61,6 +52,10 @@ void printf(const char *fmt, ...) {
   uprint(buf);
 }
 
+void hello() {
+  
+  
+}
 // typedef void CRYPTO_RWLOCK;
 
 // struct evp_pkey_st {
@@ -370,52 +365,47 @@ void printf(const char *fmt, ...) {
 
 // }
 
-static void init_openssl() {
-  OpenSSL_add_ssl_algorithms();
-  OpenSSL_add_all_ciphers();
-  SSL_load_error_strings();
-}
 
-static SSL_CTX *create_context() {
-  const SSL_METHOD *method;
-  SSL_CTX *ctx;
+// static SSL_CTX *create_context() {
+//   const SSL_METHOD *method;
+//   SSL_CTX *ctx;
 
-  method = TLSv1_2_method();
+//   method = TLSv1_2_method();
 
-  ctx = SSL_CTX_new(method);
-  if (!ctx) {
-    printf("Unable to create SSL context");
-    exit(EXIT_FAILURE);
-  }
-  return ctx;
-}
+//   ctx = SSL_CTX_new(method);
+//   if (!ctx) {
+//     printf("Unable to create SSL context");
+//     exit(EXIT_FAILURE);
+//   }
+//   return ctx;
+// }
 
-static EVP_PKEY *generatePrivateKey() {
-  EVP_PKEY *pkey = NULL;
-  EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
-  EVP_PKEY_keygen_init(pctx);
-  EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048);
-  EVP_PKEY_keygen(pctx, &pkey);
-  return pkey;
-}
+// static EVP_PKEY *generatePrivateKey() {
+//   EVP_PKEY *pkey = NULL;
+//   EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+//   EVP_PKEY_keygen_init(pctx);
+//   EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048);
+//   EVP_PKEY_keygen(pctx, &pkey);
+//   return pkey;
+// }
 
-static X509 *generateCertificate(EVP_PKEY *pkey) {
-  X509 *x509 = X509_new();
-  X509_set_version(x509, 2);
-  ASN1_INTEGER_set(X509_get_serialNumber(x509), 0);
-  X509_gmtime_adj(X509_get_notBefore(x509), 0);
-  X509_gmtime_adj(X509_get_notAfter(x509), (long)60 * 60 * 24 * 365);
-  X509_set_pubkey(x509, pkey);
+// static X509 *generateCertificate(EVP_PKEY *pkey) {
+//   X509 *x509 = X509_new();
+//   X509_set_version(x509, 2);
+//   ASN1_INTEGER_set(X509_get_serialNumber(x509), 0);
+//   X509_gmtime_adj(X509_get_notBefore(x509), 0);
+//   X509_gmtime_adj(X509_get_notAfter(x509), (long)60 * 60 * 24 * 365);
+//   X509_set_pubkey(x509, pkey);
 
-  X509_NAME *name = X509_get_subject_name(x509);
-  X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC,
-                             (const unsigned char *)"US", -1, -1, 0);
-  X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                             (const unsigned char *)"YourCN", -1, -1, 0);
-  X509_set_issuer_name(x509, name);
-  X509_sign(x509, pkey, EVP_md5());
-  return x509;
-}
+//   X509_NAME *name = X509_get_subject_name(x509);
+//   X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC,
+//                              (const unsigned char *)"US", -1, -1, 0);
+//   X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+//                              (const unsigned char *)"YourCN", -1, -1, 0);
+//   X509_set_issuer_name(x509, name);
+//   X509_sign(x509, pkey, EVP_md5());
+//   return x509;
+// }
 
 // static void configure_context(SSL_CTX *ctx)
 // {
@@ -471,10 +461,14 @@ void ecall_init_tls() {
 
 void ecall_prepare_tls_context() {}
 
+void new_thread_func() {
+
+  
+}
 void ecall_start_tls_server(void) {
   int sock;
-  SSL_CTX *ctx;
-  init_openssl();
+  // SSL_CTX *ctx;
+  // init_openssl();
   // BIO_new_ssl_connect(NULL);
 
   // printf("OPENSSL Version = %s", SSLeay_version(SSLEAY_VERSION));

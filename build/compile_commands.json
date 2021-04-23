@@ -1,0 +1,17 @@
+[
+{
+  "directory": "/home/hojoon/copy_test_app/build/App",
+  "command": "/usr/bin/c++   -I/opt/intel/sgxsdk/include -I/home/hojoon/copy_test_app/App -I/home/hojoon/copy_test_app/include -I/home/hojoon/copy_test_app/Lib/wolfssl -I/home/hojoon/copy_test_app/trusted/config -I/home/hojoon/copy_test_app/trusted/include -I/home/hojoon/copy_test_app/build/App -I/json    -m64 -O2 -UDEBUG -DNDEBUG -DEDEBUG -fPIC -Wno-attributes -std=c++11 -DHAVE_SGX_UAE_LAUNCH_H   -o CMakeFiles/oblivira.dir/TestApp.cpp.o -c /home/hojoon/copy_test_app/App/TestApp.cpp",
+  "file": "/home/hojoon/copy_test_app/App/TestApp.cpp"
+},
+{
+  "directory": "/home/hojoon/copy_test_app/build/Enclave",
+  "command": "/usr/bin/c++  -Denclave_EXPORTS -I/home/hojoon/copy_test_app/Enclave -I/home/hojoon/copy_test_app/build/Enclave -I/opt/intel/sgxsdk/include -I/opt/intel/sgxsdk/include/tlibc -I/opt/intel/sgxsdk/include/libcxx -I/home/hojoon/copy_test_app/Lib/wolfssl -I/home/hojoon/copy_test_app/Lib/wolfssl/wolfcrypt  -O2 -nostdinc -fvisibility=hidden -fpie -fstack-protector -fno-builtin -fno-builtin-printf -I. -DWOLFSSL_SGX -DWOLFSSL_HAVE_SP_RSA -DHAVE_WOLFSSL_TEST -DHAVE_WOLFSSL_HAVE_SP_DH -DHAVE_WOLFSSL_HAVE_SP_ECC -fPIC   -o CMakeFiles/enclave.dir/Enclave.cpp.o -c /home/hojoon/copy_test_app/Enclave/Enclave.cpp",
+  "file": "/home/hojoon/copy_test_app/Enclave/Enclave.cpp"
+},
+{
+  "directory": "/home/hojoon/copy_test_app/build/Enclave",
+  "command": "/usr/bin/cc -Denclave_EXPORTS -I/home/hojoon/copy_test_app/Enclave -I/home/hojoon/copy_test_app/build/Enclave -I/opt/intel/sgxsdk/include -I/opt/intel/sgxsdk/include/tlibc -I/opt/intel/sgxsdk/include/libcxx -I/home/hojoon/copy_test_app/Lib/wolfssl -I/home/hojoon/copy_test_app/Lib/wolfssl/wolfcrypt  -O2 -nostdinc -fvisibility=hidden -fpie -fstack-protector -fno-builtin -fno-builtin-printf -I. -DWOLFSSL_SGX -DWOLFSSL_HAVE_SP_RSA -DHAVE_WOLFSSL_TEST -DHAVE_WOLFSSL_HAVE_SP_DH -DHAVE_WOLFSSL_HAVE_SP_ECC -Wno-implicit-function-declaration -std=c11 -fPIC   -o CMakeFiles/enclave.dir/Enclave_t.c.o   -c /home/hojoon/copy_test_app/build/Enclave/Enclave_t.c",
+  "file": "/home/hojoon/copy_test_app/build/Enclave/Enclave_t.c"
+}
+]

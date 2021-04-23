@@ -1,0 +1,8 @@
+/home/hojoon/copy_test_app/build/CMakeFiles/rebuild_cache.dir
+/home/hojoon/copy_test_app/build/CMakeFiles/edit_cache.dir
+/home/hojoon/copy_test_app/build/App/CMakeFiles/rebuild_cache.dir
+/home/hojoon/copy_test_app/build/App/CMakeFiles/edit_cache.dir
+/home/hojoon/copy_test_app/build/App/CMakeFiles/oblivira.dir
+/home/hojoon/copy_test_app/build/Enclave/CMakeFiles/rebuild_cache.dir
+/home/hojoon/copy_test_app/build/Enclave/CMakeFiles/edit_cache.dir
+/home/hojoon/copy_test_app/build/Enclave/CMakeFiles/enclave.dir

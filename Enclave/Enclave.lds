@@ -1,9 +1,9 @@
-TestEnclave.so
+Enclave.so
 {
     global:
         g_global_data_sim;
         g_global_data;
-        TestEnclave_entry;
+        Enclave_entry;
     local:
         *;
 };

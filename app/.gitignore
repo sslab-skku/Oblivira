@@ -1,0 +1,5 @@
+TestApp
+*.o
+TestEnclave_u.c
+TestEnclave_u.h
+TestEnclave_u.o

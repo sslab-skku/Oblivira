@@ -1,25 +1,24 @@
 enclave {
 
    // -----------------WOLFSSL-INCLUDE-START----------------
-    // include "wolfssl/ssl.h"
-    // include "wolfssl/wolfcrypt/settings.h"
-    // include "wolfssl/wolfcrypt/types.h"
+    include "wolfssl/options.h" 
+    include "wolfssl/ssl.h"
+    include "wolfssl/wolfcrypt/settings.h"
+    include "wolfssl/wolfcrypt/types.h"
 
-    // include "wolfcrypt/test/test.h"
-    // include "wolfcrypt/benchmark/benchmark.h"
 
    // -----------------WOLFSSL-INCLUDE-END------------------
 
     untrusted {
-        void uprint([in, string] const char *str);
-        void usgx_exit(int reason);
-        int ucreate_thread();
+        // void uprint([in, string] const char *str);
+        // void usgx_exit(int reason);
+        // int ucreate_thread();
 	// -----------------WOLFSSL-UNTRUSTED-START----------------
-        void ocall_print_string([in, string] const char* str);
-        void ocall_current_time([out] double* time);
-        void ocall_low_res_time([out] int* time);
-        size_t ocall_recv(int sockfd, [out, size=len] void *buf, size_t len, int flags) propagate_errno;
-        size_t ocall_send(int sockfd, [in, size=len] const void *buf, size_t len, int flags) propagate_errno;
+        // void ocall_print_string([in, string] const char* str);
+        // void ocall_current_time([out] double* time);
+        // void ocall_low_res_time([out] int* time);
+        // size_t ocall_recv(int sockfd, [out, size=len] void *buf, size_t len, int flags) propagate_errno;
+        // size_t ocall_send(int sockfd, [in, size=len] const void *buf, size_t len, int flags) propagate_errno;
 
 	// -----------------WOLFSSL-UNTRUSTED-END------------------
 	
@@ -28,13 +27,13 @@ enclave {
     trusted {
         //public void t_sgxssl_call_apis();
         //public void new_thread_func(void);
-	public void hello(void);
+	// public void hello(void);
 
 	// -------------------WOLFSSL-TRUSTED-START----------------
         // public int wc_test([user_check]void* args);
         // public int wc_benchmark_test([user_check]void* args);
 
-        //public int enc_wolfSSL_Init(void);
+        public int enc_wolfSSL_Init(void);
         // public void enc_wolfSSL_Debugging_ON(void);
         // public void enc_wolfSSL_Debugging_OFF(void);
         // public long enc_wolfTLSv1_2_client_method(void);

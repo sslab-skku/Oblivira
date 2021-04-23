@@ -53,7 +53,7 @@
 #define MAX_EVENTS 2000
 
 #include "Oblivira.h"
-#include "TestEnclave_u.h"
+#include "Enclave_u.h"
 #include "ThreadPool.h"
 #include <sgx_urts.h>
 

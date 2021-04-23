@@ -54,15 +54,6 @@ char* getenv(char* name);
 int fflush(void* stream);
 void exit(int status);
 
-int rsa_test();
-int ec_test();
-int ecdh_test();
-int ecdsa_test();
-int bn_test();
-int dh_test();
-int sha256_test();
-int sha1_test();
-int threads_test();
 
 #if defined(__cplusplus)
 }

@@ -20,7 +20,7 @@ add_custom_command(
 )
 
 # add_executable(s_server Enclave_u.c s_server.cpp Utils.cpp)
-add_executable(oblivira TestApp.cpp)
+add_executable(oblivira Oblivira.cpp)
 
 include_directories(
         ${SGX_INCLUDE_DIR}

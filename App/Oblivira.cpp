@@ -52,7 +52,7 @@
 #define MAX_PATH FILENAME_MAX
 #define MAX_EVENTS 2000
 
-#include "TestApp.h"
+#include "Oblivira.h"
 #include "TestEnclave_u.h"
 #include "ThreadPool.h"
 #include <sgx_urts.h>

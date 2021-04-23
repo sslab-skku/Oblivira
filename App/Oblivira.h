@@ -50,7 +50,7 @@
 
 
 # define TOKEN_FILENAME   "enclave.token"
-# define TESTENCLAVE_FILENAME "TestEnclave.signed.so"
+# define TESTENCLAVE_FILENAME "enclave.signed.so"
 
 extern sgx_enclave_id_t global_eid;    /* global enclave id */
 

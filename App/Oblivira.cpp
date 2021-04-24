@@ -46,10 +46,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
-
-#include <wolfssl/ssl.h>
 #include <wolfssl/certs_test.h>
-
+#include <wolfssl/ssl.h>
 
 #define CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256"
 
@@ -68,6 +66,10 @@
 #define DID_REQ_PORT 8080
 #define DID_REQ_PORT 8888
 #define EVENTS_BUFF_SZ 256
+
+#define WITH_TLS 1
+#define WITHOUT_TLS 0
+
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t global_eid = 0;
 
@@ -316,14 +318,25 @@ int prepare_epoll(int sock) {
   return epoll_fd;
 }
 
-int accept_new_client(int sock, int epoll_fd) {
+int accept_new_client(int sock, int epoll_fd){
 
   int clientsock;
+  long ssl;
+  int sgxStatus;
   struct sockaddr_in addr;
   socklen_t addrlen = sizeof(addr);
+
   if ((clientsock = accept(sock, (struct sockaddr *)&addr, &addrlen)) < 0) {
     return -1;
   }
+
+  // if (is_tls) {
+  //   sgxStatus = enc_wolfSSL_new(global_eid, &ssl, ctx);
+  //   if (sgxStatus != SGX_SUCCESS || ssl < 0) {
+  //     printf("wolfSSL_new failure\n");
+  //     return EXIT_FAILURE;
+  //   }
+  // }
 
   char ip_buff[INET_ADDRSTRLEN + 1];
   if (inet_ntop(AF_INET, &addr.sin_addr, ip_buff, sizeof(ip_buff)) == NULL) {
@@ -391,7 +404,8 @@ int handle_request(int clientfd) {
   return 0;
 }
 
-void *worker_thread(int sock, int epoll_fd) {
+void *worker_thread(int sock, int epoll_fd, int is_tls) {
+
   int i;
   int events_cnt;
   struct epoll_event *events =
@@ -437,7 +451,7 @@ int init_sgx_ssl(void) {
   int ret;
   // long ssl;
   long method;
-  
+
   enc_wolfSSL_Init(global_eid, &sgxStatus);
   sgxStatus = enc_wolfTLSv1_2_server_method(global_eid, &method);
   if (sgxStatus != SGX_SUCCESS) {
@@ -497,7 +511,8 @@ int main(int argc, char *argv[]) {
 
   char c;
   while (1) {
-    didQueryPool.submit(worker_thread, did_req_sock, did_req_epoll_fd);
+    didQueryPool.submit(worker_thread, did_req_sock, did_req_epoll_fd,
+                        WITH_TLS);
   }
 
   didQueryPool.shutdown();

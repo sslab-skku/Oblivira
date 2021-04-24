@@ -32,16 +32,17 @@
 #ifndef _TESTENCLAVE_H_
 #define _TESTENCLAVE_H_
 
-#include <stdlib.h>
 #include <assert.h>
+#include <stdlib.h>
 
-#define TEST_CHECK(status)	\
-{	\
-	if (status != SGX_SUCCESS) {	\
-		printf("OCALL status check failed %s(%d), status = %d\n", __FUNCTION__, __LINE__, status);	\
-		abort();	\
-	}	\
-}
+#define TEST_CHECK(status)                                                     \
+  {                                                                            \
+    if (status != SGX_SUCCESS) {                                               \
+      printf("OCALL status check failed %s(%d), status = %d\n", __FUNCTION__,  \
+             __LINE__, status);                                                \
+      abort();                                                                 \
+    }                                                                          \
+  }
 
 #if defined(__cplusplus)
 extern "C" {
@@ -49,12 +50,15 @@ extern "C" {
 
 void printf(const char *fmt, ...);
 
-int puts(const char* str);
-char* getenv(char* name);
-int fflush(void* stream);
+int puts(const char *str);
+char *getenv(char *name);
+int fflush(void *stream);
 void exit(int status);
 
-
+int LowResTimer(void);
+size_t recv(int sockfd, void *buf, size_t len, int flags);
+size_t send(int sockfd, const void *buf, size_t len, int flags);
+  
 #if defined(__cplusplus)
 }
 #endif

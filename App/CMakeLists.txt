@@ -10,12 +10,12 @@ endif(EXISTS "${SGX_PATH}/include/sgx_uae_launch.h")
 set_directory_properties(PROPERTIES
         ADDITIONAL_MAKE_CLEAN_FILES "Enclave_u.c; Enclave_u.h")
 
+              # --search-path ${CMAKE_CURRENT_SOURCE_DIR}/Enclave/
 add_custom_command(
         OUTPUT Enclave_u.c Enclave_u.h
         COMMAND ${SGX_EDGER8R} --untrusted Enclave.edl
-        --search-path ${CMAKE_CURRENT_SOURCE_DIR}/../enclave/ # enclave.edl
         --search-path ${SGX_PATH}/include
-        --search-path ${CMAKE_SOURCE_DIR}/trusted # mbedtls_sgx.edl
+        --search-path ${CMAKE_SOURCE_DIR}/Enclave # mbedtls_sgx.edl
         COMMENT "Generating Enclave_u.{c,h}"
 )
 

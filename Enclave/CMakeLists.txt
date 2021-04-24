@@ -1,8 +1,9 @@
 # enable_language(C CXX ASM_NASM)
 
 set(SOURCE_FILES
-        Enclave.cpp  
+        Enclave.cpp
         Enclave_t.c)
+      
 
         # Enclave_utils.cpp
         # ssl_conn_hdlr.cpp
@@ -53,10 +54,9 @@ include_directories(
 
 set(COMMON_C_CPP_FLAGS "-O2 -nostdinc -fvisibility=hidden -fpie -fstack-protector -fno-builtin -fno-builtin-printf -I.")
 
-set(WOLFSSL_C_EXTRA_FLAGS "-DWOLFSSL_SGX  -DHAVE_WOLFSSL_TEST -DHAVE_WOLFSSL_SP")
+#set(WOLFSSL_C_EXTRA_FLAGS "-DWOLFSSL_SGX  -DHAVE_WOLFSSL_TEST -DHAVE_WOLFSSL_SP")
 
-# set(WOLFSSL_C_EXTRA_FLAGS "-DWOLFSSL_SGX")
-
+set(WOLFSSL_C_EXTRA_FLAGS "-DWOLFSSL_SGX -DHAVE_WOLFSSL_TEST")
 
 set(CMAKE_C_FLAGS "${COMMON_C_CPP_FLAGS} ${WOLFSSL_C_EXTRA_FLAGS} -Wno-implicit-function-declaration -std=c11")
 
@@ -70,11 +70,22 @@ set(CMAKE_CXX_FLAGS "${COMMON_C_CPP_FLAGS} ${WOLFSSL_C_EXTRA_FLAGS}")
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_C_FLAGS} -std=c++11 -nostdinc++")
 
 
-# set_target_properties(enclave PROPERTIES PREFIX "")
+set_target_properties(enclave PROPERTIES PREFIX "")
 
-target_link_libraries(enclave "-m64 \
+# target_link_libraries(enclave "${SGX_COMMON_CFLAGS} \
+#     -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L${SGX_LIBRARY_PATH} \
+#     -Wl,--whole-archive ${WOLFSSL_STATIC_LIB_FILE_FULL_PATH} -Wl,--no-whole-archive\
+#     -Wl,--whole-archive -l${SGX_TRTS_LIB} -Wl,--no-whole-archive \
+#     -Wl,--start-group -lsgx_tstdc -lsgx_tcxx -lsgx_tcrypto -l${SGX_TSVC_LIB} -Wl,--end-group \
+#     -Wl,-Bstatic -Wl,-Bsymbolic -Wl,--no-undefined \
+#     -Wl,-pie,-eenclave_entry -Wl,--export-dynamic \
+#     -Wl,--defsym,__ImageBase=0 \
+#     -Wl,-v\
+#     -Wl,--version-script=${CMAKE_SOURCE_DIR}/Enclave/Enclave.lds")
+
+target_link_libraries(enclave "${SGX_COMMON_CFLAGS} \
     -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L${SGX_LIBRARY_PATH} \
-    -Wl,--whole-archive ${WOLFSSL_STATIC_LIB_FILE_FULL_PATH} -Wl,--no-whole-archive\
+    -L${WOLFSSL_LIB} -l${WOLFSSL_STATIC_LIB_FILE} \
     -Wl,--whole-archive -l${SGX_TRTS_LIB} -Wl,--no-whole-archive \
     -Wl,--start-group -lsgx_tstdc -lsgx_tcxx -lsgx_tcrypto -l${SGX_TSVC_LIB} -Wl,--end-group \
     -Wl,-Bstatic -Wl,-Bsymbolic -Wl,--no-undefined \
@@ -83,7 +94,7 @@ target_link_libraries(enclave "-m64 \
     -Wl,-v\
     -Wl,--version-script=${CMAKE_SOURCE_DIR}/Enclave/Enclave.lds")
     
-# -Wl,--version-script=${CMAKE_SOURCE_DIR}/Enclave/Enclave.lds")
+
 
 add_custom_command(TARGET enclave
         POST_BUILD

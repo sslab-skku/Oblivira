@@ -45,6 +45,12 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
+
+#include <wolfssl/ssl.h>
+#include <wolfssl/certs_test.h>
+
+#define CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256"
+
 #define SERVERBACKLOG 10
 #define NUM_DID_REQ_THR 4
 #define NUM_DRF_RECV_THR 4
@@ -206,6 +212,47 @@ void usgx_exit(int reason) {
   printf("usgx_exit: %d\n", reason);
   exit(reason);
 }
+
+static double current_time()
+{
+	struct timeval tv;
+	gettimeofday(&tv,NULL);
+
+	return (double)(1000000 * tv.tv_sec + tv.tv_usec)/1000000.0;
+}
+
+void ocall_print_string(const char *str)
+{
+    /* Proxy/Bridge will check the length and null-terminate 
+     * the input string to prevent buffer overflow. 
+     */ printf("%s", str);
+}
+
+void ocall_current_time(double* time)
+{
+    if(!time) return;
+    *time = current_time();
+    return;
+}
+
+void ocall_low_res_time(int* time)
+{
+    struct timeval tv;
+    if(!time) return;
+    *time = tv.tv_sec;
+    return;
+}
+
+size_t ocall_recv(int sockfd, void *buf, size_t len, int flags)
+{
+    return recv(sockfd, buf, len, flags);
+}
+
+size_t ocall_send(int sockfd, const void *buf, size_t len, int flags)
+{
+    return send(sockfd, buf, len, flags);
+}
+
 
 // void *thread_test_func(void *p) {
 //   new_thread_func(global_eid);

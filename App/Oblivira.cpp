@@ -46,8 +46,10 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
-#include <wolfssl/certs_test.h>
+
 #include <wolfssl/ssl.h>
+#include <wolfssl/certs_test.h>
+
 
 #define CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256"
 
@@ -389,49 +391,31 @@ int handle_request(int clientfd) {
   return 0;
 }
 
-// Common workthread
 void *worker_thread(int sock, int epoll_fd) {
   int i;
   int events_cnt;
-  struct epoll_event *events;
-
-  events = (struct epoll_event *)malloc(sizeof(*events) * EVENTS_BUFF_SZ);
-
+  struct epoll_event *events =
+      (struct epoll_event *)malloc(sizeof(*events) * EVENTS_BUFF_SZ);
   if (events == NULL) {
     perror("malloc(3) failed when attempting to allocate events buffer");
     pthread_exit(NULL);
   }
 
-  while ((events_cnt =
-              epoll_wait(did_req_epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
+  while ((events_cnt = epoll_wait(epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
 
     for (i = 0; i < events_cnt; i++) {
       assert(events[i].events & EPOLLIN);
 
-      if (events[i].data.fd != did_req_sock)
-        continue;
-
-      if (accept_new_client(sock, epoll_fd) == -1) {
-        fprintf(stderr, "Error accepting new client: %s\n", strerror(errno));
-        continue;
+      if (events[i].data.fd == did_req_sock) {
+        if (accept_new_client(sock, epoll_fd) == -1) {
+          fprintf(stderr, "Error accepting new client: %s\n", strerror(errno));
+        }
+      } else {
+        if (handle_request(events[i].data.fd) == -1) {
+          fprintf(stderr, "Error handling request: %s\n", strerror(errno));
+        }
       }
-
-      if (handle_request(events[i].data.fd) == -1) {
-        fprintf(stderr, "Error handling request: %s\n", strerror(errno));
-      }
-    }
-
-    // if (events[i].data.fd == did_req_sock) {
-    //   if (accept_new_client(sock, epoll_fd) == -1) {
-    //     fprintf(stderr, "Error accepting new client: %s\n",
-    //     strerror(errno));
-    //   }
-    // } else {
-    //   if (handle_request(events[i].data.fd) == -1) {
-    //     fprintf(stderr, "Error handling request: %s\n", strerror(errno));
-    //   }
-    // }
-    //   }
+    } // For
   }
 
   if (events_cnt == 0) {
@@ -446,6 +430,45 @@ void *worker_thread(int sock, int epoll_fd) {
   return NULL;
 }
 
+// Initialize SSL Context
+int init_sgx_ssl(void) {
+  int sgxStatus;
+  long ctx;
+  int ret;
+  // long ssl;
+  long method;
+  
+  enc_wolfSSL_Init(global_eid, &sgxStatus);
+  sgxStatus = enc_wolfTLSv1_2_server_method(global_eid, &method);
+  if (sgxStatus != SGX_SUCCESS) {
+    printf("wolfTLSv1_2_server_method failure\n");
+    return EXIT_FAILURE;
+  }
+
+  sgxStatus = enc_wolfSSL_CTX_new(global_eid, &ctx, method);
+  if (sgxStatus != SGX_SUCCESS || ctx < 0) {
+    printf("wolfSSL_CTX_new failure\n");
+    return EXIT_FAILURE;
+  }
+
+  /* Load server certificates into WOLFSSL_CTX */
+  sgxStatus = enc_wolfSSL_CTX_use_certificate_buffer(
+      global_eid, &ret, ctx, server_cert_der_2048, sizeof_server_cert_der_2048,
+      SSL_FILETYPE_ASN1);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("enc_wolfSSL_CTX_use_certificate_chain_buffer_format failure\n");
+    return EXIT_FAILURE;
+  }
+
+  /* Load server key into WOLFSSL_CTX */
+  sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
+      global_eid, &ret, ctx, server_key_der_2048, sizeof_server_key_der_2048,
+      SSL_FILETYPE_ASN1);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("wolfSSL_CTX_use_PrivateKey_buffer failure\n");
+    return EXIT_FAILURE;
+  }
+}
 int main(int argc, char *argv[]) {
   int sgxStatus;
 

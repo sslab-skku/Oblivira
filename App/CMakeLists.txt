@@ -30,7 +30,7 @@ add_custom_target(
 # )
 
 # add_executable(s_server Enclave_u.c s_server.cpp Utils.cpp)
-add_executable(oblivira Oblivira.cpp)
+add_executable(oblivira Oblivira.cpp Enclave_u.c)
 
 include_directories(
         ${SGX_INCLUDE_DIR}

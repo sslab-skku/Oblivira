@@ -414,6 +414,11 @@ void *worker_thread(int sock, int epoll_fd, int is_tls) {
     perror("malloc(3) failed when attempting to allocate events buffer");
     pthread_exit(NULL);
   }
+  // nfds = epoll_wait(worker->efd, &evs, 1024, -1);
+    // for (i = 0; i < nfds; i++)
+    //     ((struct socket_context*)evs[i].data.ptr)->handler(
+    //         evs[i].data.ptr,
+    //         evs[i].events);
 
   while ((events_cnt = epoll_wait(epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
 

@@ -46,8 +46,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
-#include <wolfssl/ssl.h>
 #include <wolfssl/certs_test.h>
+#include <wolfssl/ssl.h>
 
 #define CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256"
 
@@ -58,13 +58,13 @@
 #define MAX_PATH FILENAME_MAX
 #define MAX_EVENTS 2000
 
-#include "Oblivira.h"
 #include "Enclave_u.h"
+#include "Oblivira.h"
 #include <sgx_urts.h>
 
 #include "ThreadPool.h"
 #define DID_REQ_PORT 8080
-#define DID_REQ_PORT 8080
+#define DID_REQ_PORT 8888
 #define EVENTS_BUFF_SZ 256
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t global_eid = 0;
@@ -213,46 +213,42 @@ void usgx_exit(int reason) {
   exit(reason);
 }
 
-static double current_time()
-{
-	struct timeval tv;
-	gettimeofday(&tv,NULL);
+static double current_time() {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
 
-	return (double)(1000000 * tv.tv_sec + tv.tv_usec)/1000000.0;
+  return (double)(1000000 * tv.tv_sec + tv.tv_usec) / 1000000.0;
 }
 
-void ocall_print_string(const char *str)
-{
-    /* Proxy/Bridge will check the length and null-terminate 
-     * the input string to prevent buffer overflow. 
-     */ printf("%s", str);
+void ocall_print_string(const char *str) {
+  /* Proxy/Bridge will check the length and null-terminate
+   * the input string to prevent buffer overflow.
+   */
+  printf("%s", str);
 }
 
-void ocall_current_time(double* time)
-{
-    if(!time) return;
-    *time = current_time();
+void ocall_current_time(double *time) {
+  if (!time)
     return;
+  *time = current_time();
+  return;
 }
 
-void ocall_low_res_time(int* time)
-{
-    struct timeval tv;
-    if(!time) return;
-    *time = tv.tv_sec;
+void ocall_low_res_time(int *time) {
+  struct timeval tv;
+  if (!time)
     return;
+  *time = tv.tv_sec;
+  return;
 }
 
-size_t ocall_recv(int sockfd, void *buf, size_t len, int flags)
-{
-    return recv(sockfd, buf, len, flags);
+size_t ocall_recv(int sockfd, void *buf, size_t len, int flags) {
+  return recv(sockfd, buf, len, flags);
 }
 
-size_t ocall_send(int sockfd, const void *buf, size_t len, int flags)
-{
-    return send(sockfd, buf, len, flags);
+size_t ocall_send(int sockfd, const void *buf, size_t len, int flags) {
+  return send(sockfd, buf, len, flags);
 }
-
 
 // void *thread_test_func(void *p) {
 //   new_thread_func(global_eid);
@@ -266,6 +262,8 @@ size_t ocall_send(int sockfd, const void *buf, size_t len, int flags)
 // }
 
 // void hello() { printf("Hello\n"); }
+
+int setup_tls_on_socket(int sockfd) {}
 
 int prepare_socket(int port) {
 
@@ -343,7 +341,7 @@ int accept_new_client(int sock, int epoll_fd) {
     close(clientsock);
     return -1;
   }
-
+  printf("Returning");
   return 0;
 }
 
@@ -364,11 +362,13 @@ int handle_request(int clientfd) {
   readbuff[n] = '\0';
 
   if (getpeername(clientfd, (struct sockaddr *)&addr, &addrlen) < 0) {
+    printf("1");
     return -1;
   }
 
   char ip_buff[INET_ADDRSTRLEN + 1];
   if (inet_ntop(AF_INET, &addr.sin_addr, ip_buff, sizeof(ip_buff)) == NULL) {
+    printf("2");
     return -1;
   }
 
@@ -377,6 +377,7 @@ int handle_request(int clientfd) {
 
   ssize_t sent;
   if ((sent = send(clientfd, readbuff, n, 0)) < 0) {
+    printf("3");
     return -1;
   }
 
@@ -388,31 +389,49 @@ int handle_request(int clientfd) {
   return 0;
 }
 
-void *did_req_worker_thread(int sock, int epoll_fd) {
-  struct epoll_event *events =
-      (struct epoll_event *)malloc(sizeof(*events) * EVENTS_BUFF_SZ);
+// Common workthread
+void *worker_thread(int sock, int epoll_fd) {
+  int i;
+  int events_cnt;
+  struct epoll_event *events;
+
+  events = (struct epoll_event *)malloc(sizeof(*events) * EVENTS_BUFF_SZ);
+
   if (events == NULL) {
     perror("malloc(3) failed when attempting to allocate events buffer");
     pthread_exit(NULL);
   }
 
-  int events_cnt;
   while ((events_cnt =
               epoll_wait(did_req_epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
-    int i;
+
     for (i = 0; i < events_cnt; i++) {
       assert(events[i].events & EPOLLIN);
 
-      if (events[i].data.fd == did_req_sock) {
-        if (accept_new_client(sock, epoll_fd) == -1) {
-          fprintf(stderr, "Error accepting new client: %s\n", strerror(errno));
-        }
-      } else {
-        if (handle_request(events[i].data.fd) == -1) {
-          fprintf(stderr, "Error handling request: %s\n", strerror(errno));
-        }
+      if (events[i].data.fd != did_req_sock)
+        continue;
+
+      if (accept_new_client(sock, epoll_fd) == -1) {
+        fprintf(stderr, "Error accepting new client: %s\n", strerror(errno));
+        continue;
+      }
+
+      if (handle_request(events[i].data.fd) == -1) {
+        fprintf(stderr, "Error handling request: %s\n", strerror(errno));
       }
     }
+
+    // if (events[i].data.fd == did_req_sock) {
+    //   if (accept_new_client(sock, epoll_fd) == -1) {
+    //     fprintf(stderr, "Error accepting new client: %s\n",
+    //     strerror(errno));
+    //   }
+    // } else {
+    //   if (handle_request(events[i].data.fd) == -1) {
+    //     fprintf(stderr, "Error handling request: %s\n", strerror(errno));
+    //   }
+    // }
+    //   }
   }
 
   if (events_cnt == 0) {
@@ -455,7 +474,7 @@ int main(int argc, char *argv[]) {
 
   char c;
   while (1) {
-    didQueryPool.submit(did_req_worker_thread, did_req_sock, did_req_epoll_fd);
+    didQueryPool.submit(worker_thread, did_req_sock, did_req_epoll_fd);
   }
 
   didQueryPool.shutdown();

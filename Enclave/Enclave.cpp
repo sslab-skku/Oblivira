@@ -216,6 +216,7 @@ int enc_wolfSSL_CTX_use_certificate_buffer(long id,
 int enc_wolfSSL_CTX_use_PrivateKey_buffer(long id, const unsigned char* buf,
                                             long sz, int type)
 {
+  int ret;
     WOLFSSL_CTX* ctx = GetCTX(id);
     if (ctx == NULL) {
         return -1;

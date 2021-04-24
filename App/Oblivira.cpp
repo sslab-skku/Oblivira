@@ -84,6 +84,13 @@ typedef struct _sgx_errlist_t {
   const char *sug; /* Suggestion */
 } sgx_errlist_t;
 
+struct service_port {
+  int sock_fd;
+  int epoll_fd;
+  int is_tls;
+  void *(*handler)(void *arg);
+};
+
 /* Error code returned by sgx_create_enclave */
 static sgx_errlist_t sgx_errlist[] = {
     {SGX_ERROR_UNEXPECTED, "Unexpected error occurred.", NULL},
@@ -318,7 +325,7 @@ int prepare_epoll(int sock) {
   return epoll_fd;
 }
 
-int accept_new_client(int sock, int epoll_fd){
+int accept_new_client(int sock, int epoll_fd) {
 
   int clientsock;
   long ssl;
@@ -415,10 +422,10 @@ void *worker_thread(int sock, int epoll_fd, int is_tls) {
     pthread_exit(NULL);
   }
   // nfds = epoll_wait(worker->efd, &evs, 1024, -1);
-    // for (i = 0; i < nfds; i++)
-    //     ((struct socket_context*)evs[i].data.ptr)->handler(
-    //         evs[i].data.ptr,
-    //         evs[i].events);
+  // for (i = 0; i < nfds; i++)
+  //     ((struct socket_context*)evs[i].data.ptr)->handler(
+  //         evs[i].data.ptr,
+  //         evs[i].events);
 
   while ((events_cnt = epoll_wait(epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
 
@@ -452,8 +459,8 @@ void *worker_thread(int sock, int epoll_fd, int is_tls) {
 // Initialize SSL Context
 int init_sgx_ssl(void) {
   int sgxStatus;
-  long ctx;
   int ret;
+  long ctx;
   // long ssl;
   long method;
 
@@ -483,13 +490,16 @@ int init_sgx_ssl(void) {
   sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
       global_eid, &ret, ctx, server_key_der_2048, sizeof_server_key_der_2048,
       SSL_FILETYPE_ASN1);
+
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
-    printf("wolfSSL_CTX_use_PrivateKey_buffer failure\n");
+    printf("wolfSSL_CTX_use_PrivateKey_buffer failure \n");
     return EXIT_FAILURE;
   }
+  return SGX_SUCCESS;
+  
 }
 int main(int argc, char *argv[]) {
-  int sgxStatus;
+  int ret;
 
   ThreadPool didQueryPool(NUM_DID_REQ_THR);
   ThreadPool didDocFetchPool(NUM_DRF_RECV_THR);
@@ -499,6 +509,11 @@ int main(int argc, char *argv[]) {
 
   /* Initialize the enclave */
   if (initialize_enclave() < 0)
+    return 1;
+
+  enc_wolfSSL_Debugging_ON(global_eid);
+  ret = init_sgx_ssl();
+  if (ret == EXIT_FAILURE)
     return 1;
 
   // Initialize thread pools

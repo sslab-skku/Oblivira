@@ -44,7 +44,7 @@
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-
+#include <sys/time.h>
 
 #include <wolfssl/ssl.h>
 #include <wolfssl/certs_test.h>
@@ -60,9 +60,9 @@
 
 #include "Oblivira.h"
 #include "Enclave_u.h"
-#include "ThreadPool.h"
 #include <sgx_urts.h>
 
+#include "ThreadPool.h"
 #define DID_REQ_PORT 8080
 #define DID_REQ_PORT 8080
 #define EVENTS_BUFF_SZ 256

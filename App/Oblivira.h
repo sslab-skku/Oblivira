@@ -270,6 +270,13 @@ static const unsigned char server_cert_der_2048[] = {
     0xCC};
 static const int sizeof_server_cert_der_2048 = sizeof(server_cert_der_2048);
 
+static const char httpOKResponse[100000] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/html; charset=UTF-8\r\n\r\n"
+    "<!DOCTYPE html>\r\n"
+    "<html><head><title></title></head>\r\n"
+    "<body><p></p></body><html>\r\n";
+
 #if defined(__cplusplus)
 }
 #endif

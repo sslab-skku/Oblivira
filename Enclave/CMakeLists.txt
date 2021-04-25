@@ -3,7 +3,6 @@
 set(SOURCE_FILES
         Enclave.cpp
         Enclave_t.c)
-      
 
         # Enclave_utils.cpp
         # ssl_conn_hdlr.cpp
@@ -87,7 +86,7 @@ target_link_libraries(enclave "${SGX_COMMON_CFLAGS} \
     -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L${SGX_LIBRARY_PATH} \
     -L${WOLFSSL_LIB} -l${WOLFSSL_STATIC_LIB_FILE} \
     -Wl,--whole-archive -l${SGX_TRTS_LIB} -Wl,--no-whole-archive \
-    -Wl,--start-group -lsgx_tstdc -lsgx_tcxx -lsgx_tcrypto -l${SGX_TSVC_LIB} -Wl,--end-group \
+    -Wl,--start-group -lsgx_tstdc -lsgx_tcxx -lsgx_tcrypto -l${SGX_TSVC_LIB} -lsgx_pthread -lpthread -Wl,--end-group \
     -Wl,-Bstatic -Wl,-Bsymbolic -Wl,--no-undefined \
     -Wl,-pie,-eenclave_entry -Wl,--export-dynamic \
     -Wl,--defsym,__ImageBase=0 \

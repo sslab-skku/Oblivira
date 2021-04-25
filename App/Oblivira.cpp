@@ -1,35 +1,5 @@
-/*
- * Copyright (C) 2011-2017 Intel Corporation. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in
- *     the documentation and/or other materials provided with the
- *     distribution.
- *   * Neither the name of Intel Corporation nor the names of its
- *     contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- */
-
 #include <assert.h>
+#include <cstdlib>
 #include <stdio.h>
 #include <string.h>
 
@@ -71,12 +41,12 @@
 #define WITHOUT_TLS 0
 
 /* Global EID shared by multiple threads */
-sgx_enclave_id_t global_eid = 0;
+sgx_enclave_id_t enclave_id = 0;
 
 // EPOLL fd
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 // For DID requests, and DRF receiving
-int did_req_sock, drf_recv_sock;
+// int did_req_sock, drf_recv_sock;
 
 typedef struct _sgx_errlist_t {
   sgx_status_t err;
@@ -85,10 +55,13 @@ typedef struct _sgx_errlist_t {
 } sgx_errlist_t;
 
 struct service_port {
-  int sock_fd;
+  int server_fd;
   int epoll_fd;
   int is_tls;
+  long ctx;
+  long ssl;
   void *(*handler)(void *arg);
+  // struct epoll_event events[256];
 };
 
 /* Error code returned by sgx_create_enclave */
@@ -178,7 +151,7 @@ int initialize_enclave(void) {
   /* Debug Support: set 2nd parameter to 1 */
 
   ret = sgx_create_enclave(TESTENCLAVE_FILENAME, SGX_DEBUG_FLAG, &token,
-                           &updated, &global_eid, NULL);
+                           &updated, &enclave_id, NULL);
 
   if (ret != SGX_SUCCESS) {
     print_error_message(ret);
@@ -261,21 +234,6 @@ size_t ocall_send(int sockfd, const void *buf, size_t len, int flags) {
   return send(sockfd, buf, len, flags);
 }
 
-// void *thread_test_func(void *p) {
-//   new_thread_func(global_eid);
-//   return NULL;
-// }
-
-// int ucreate_thread() {
-//   pthread_t thread;
-//   int res = pthread_create(&thread, NULL, thread_test_func, NULL);
-//   return res;
-// }
-
-// void hello() { printf("Hello\n"); }
-
-int setup_tls_on_socket(int sockfd) {}
-
 int prepare_socket(int port) {
 
   int sockfd;
@@ -312,12 +270,11 @@ int prepare_epoll(int sock) {
     perror("epoll_create(2) failed");
     exit(EXIT_FAILURE);
   }
-
   // Epoll
   epevent.events = EPOLLIN | EPOLLET;
-  epevent.data.fd = did_req_sock;
+  epevent.data.fd = sock;
 
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, did_req_sock, &epevent) < 0) {
+  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &epevent) < 0) {
     perror("epoll_ctl(2) failed on main server socket");
     exit(EXIT_FAILURE);
   }
@@ -325,46 +282,50 @@ int prepare_epoll(int sock) {
   return epoll_fd;
 }
 
-int accept_new_client(int sock, int epoll_fd) {
-
-  int clientsock;
-  long ssl;
+// Initialize SSL Context
+long init_ssl_ctx(void) {
   int sgxStatus;
-  struct sockaddr_in addr;
-  socklen_t addrlen = sizeof(addr);
+  int ret;
+  long ctx;
+  // long ssl;
+  long method;
 
-  if ((clientsock = accept(sock, (struct sockaddr *)&addr, &addrlen)) < 0) {
-    return -1;
+  sgxStatus = enc_wolfTLSv1_2_server_method(enclave_id, &method);
+  if (sgxStatus != SGX_SUCCESS) {
+    printf("wolfTLSv1_2_server_method failure\n");
+    return EXIT_FAILURE;
   }
 
-  // if (is_tls) {
-  //   sgxStatus = enc_wolfSSL_new(global_eid, &ssl, ctx);
-  //   if (sgxStatus != SGX_SUCCESS || ssl < 0) {
-  //     printf("wolfSSL_new failure\n");
-  //     return EXIT_FAILURE;
-  //   }
-  // }
-
-  char ip_buff[INET_ADDRSTRLEN + 1];
-  if (inet_ntop(AF_INET, &addr.sin_addr, ip_buff, sizeof(ip_buff)) == NULL) {
-    close(clientsock);
-    return -1;
+  sgxStatus = enc_wolfSSL_CTX_new(enclave_id, &ctx, method);
+  if (sgxStatus != SGX_SUCCESS || ctx < 0) {
+    printf("wolfSSL_CTX_new failure\n");
+    return EXIT_FAILURE;
   }
 
-  printf("*** [%p] Client connected from %s:%" PRIu16 "\n",
-         (void *)pthread_self(), ip_buff, ntohs(addr.sin_port));
-
-  struct epoll_event epevent;
-  epevent.events = EPOLLIN | EPOLLET;
-  epevent.data.fd = clientsock;
-
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, clientsock, &epevent) < 0) {
-    perror("epoll_ctl(2) failed attempting to add new client");
-    close(clientsock);
-    return -1;
+  /* Load server certificates into WOLFSSL_CTX */
+  sgxStatus = enc_wolfSSL_CTX_use_certificate_buffer(
+      enclave_id, &ret, ctx, server_cert_der_2048, sizeof_server_cert_der_2048,
+      SSL_FILETYPE_ASN1);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("enc_wolfSSL_CTX_use_certificate_chain_buffer_format failure\n");
+    return EXIT_FAILURE;
   }
-  printf("Returning");
-  return 0;
+
+  /* Load server key into WOLFSSL_CTX */
+  sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
+      enclave_id, &ret, ctx, server_key_der_2048, sizeof_server_key_der_2048,
+      SSL_FILETYPE_ASN1);
+
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("wolfSSL_CTX_use_PrivateKey_buffer failure \n");
+    return EXIT_FAILURE;
+  }
+  return ctx;
+}
+
+void *hello(void *a) {
+  printf("%d\n", a);
+  return NULL;
 }
 
 int handle_request(int clientfd) {
@@ -384,13 +345,11 @@ int handle_request(int clientfd) {
   readbuff[n] = '\0';
 
   if (getpeername(clientfd, (struct sockaddr *)&addr, &addrlen) < 0) {
-    printf("1");
     return -1;
   }
 
   char ip_buff[INET_ADDRSTRLEN + 1];
   if (inet_ntop(AF_INET, &addr.sin_addr, ip_buff, sizeof(ip_buff)) == NULL) {
-    printf("2");
     return -1;
   }
 
@@ -399,7 +358,6 @@ int handle_request(int clientfd) {
 
   ssize_t sent;
   if ((sent = send(clientfd, readbuff, n, 0)) < 0) {
-    printf("3");
     return -1;
   }
 
@@ -410,97 +368,113 @@ int handle_request(int clientfd) {
 
   return 0;
 }
+static int __accept_tls_client(struct service_port *service, int conn_fd) {
+  int sgxStatus, ret;
 
-void *worker_thread(int sock, int epoll_fd, int is_tls) {
+  sgxStatus = enc_wolfSSL_new(enclave_id, &service->ssl, service->ctx);
+  if (sgxStatus != SGX_SUCCESS || service->ssl < 0) {
+    printf("wolfSSL_new failure\n");
+    return EXIT_FAILURE;
+  }
+  printf("[TLS] context creation successful\n");
+  sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, service->ssl, conn_fd);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("wolfSSL_set_fd failure\n");
+    return EXIT_FAILURE;
+  }
+  printf("[TLS] setting socket fd successful\n");
+
+  printf("[TLS] Client connected successfully\n");
+  return EXIT_SUCCESS;
+}
+
+// Input: server_fd, epoll_fd
+void *worker_thread(struct service_port *service) {
 
   int i;
-  int events_cnt;
-  struct epoll_event *events =
-      (struct epoll_event *)malloc(sizeof(*events) * EVENTS_BUFF_SZ);
-  if (events == NULL) {
-    perror("malloc(3) failed when attempting to allocate events buffer");
-    pthread_exit(NULL);
-  }
-  // nfds = epoll_wait(worker->efd, &evs, 1024, -1);
-  // for (i = 0; i < nfds; i++)
-  //     ((struct socket_context*)evs[i].data.ptr)->handler(
-  //         evs[i].data.ptr,
-  //         evs[i].events);
-
-  while ((events_cnt = epoll_wait(epoll_fd, events, EVENTS_BUFF_SZ, -1)) > 0) {
-
-    for (i = 0; i < events_cnt; i++) {
-      assert(events[i].events & EPOLLIN);
-
-      if (events[i].data.fd == did_req_sock) {
-        if (accept_new_client(sock, epoll_fd) == -1) {
-          fprintf(stderr, "Error accepting new client: %s\n", strerror(errno));
-        }
-      } else {
-        if (handle_request(events[i].data.fd) == -1) {
-          fprintf(stderr, "Error handling request: %s\n", strerror(errno));
-        }
-      }
-    } // For
-  }
-
-  if (events_cnt == 0) {
-    fprintf(stderr,
-            "epoll_wait(2) returned 0, but timeout was not specified...?");
-  } else {
-    perror("epoll_wait(2) error");
-  }
-
-  free(events);
-
-  return NULL;
-}
-
-// Initialize SSL Context
-int init_sgx_ssl(void) {
-  int sgxStatus;
   int ret;
-  long ctx;
-  // long ssl;
-  long method;
 
-  enc_wolfSSL_Init(global_eid, &sgxStatus);
-  sgxStatus = enc_wolfTLSv1_2_server_method(global_eid, &method);
-  if (sgxStatus != SGX_SUCCESS) {
-    printf("wolfTLSv1_2_server_method failure\n");
-    return EXIT_FAILURE;
+  // Connection per thread
+  int conn_fd;
+  struct sockaddr_in conn_addr;
+  socklen_t addrlen = sizeof(struct sockaddr_in);
+  struct epoll_event event;
+  int events_cnt;
+
+  // 256 event buffer per thread
+  struct epoll_event events[EVENTS_BUFF_SZ];
+
+  printf("[%p]Entering event looop\n", pthread_self());
+  // Worker thread loop
+  while (1) {
+    // Fetch events
+    events_cnt = epoll_wait(service->epoll_fd, events, EVENTS_BUFF_SZ, 0);
+    // printf("[Event Loop] events_cnt:%d\n", events_cnt);
+
+    // handle error
+    if (events_cnt < 0)
+      printf("[EventLoop] epoll_wait() error\n");
+
+    // iterate through events
+    for (i = 0; i < events_cnt; i++) {
+      // Event at server fd, new connection
+      if (events[i].data.fd == service->server_fd) {
+        printf("[EventLoop] Accepting client\n");
+        // accept
+        conn_fd =
+            accept(service->server_fd, (struct sockaddr *)&conn_addr, &addrlen);
+
+        // If accept fails, then skip
+        if (conn_fd < 0)
+          continue;
+
+        // Create TLS channel if 'is_tls'
+        if (service->is_tls == TRUE) {
+          ret = __accept_tls_client(service, conn_fd);
+          if (ret == EXIT_FAILURE)
+            continue;
+
+          printf("[EventLoop][TLS][%p] Accept Succeeded\n", pthread_self());
+          char buff[128];
+          int sgxStatus;
+          memset(buff, 0, sizeof(buff));
+          sgxStatus = enc_wolfSSL_read(enclave_id, &ret, service->ssl, buff,
+                                       sizeof(buff) - 1);
+
+          printf("%s\n", buff);
+          sgxStatus = enc_wolfSSL_write(enclave_id, &ret, service->ssl,
+                                       (void *)httpOKResponse,
+                                       strlen(httpOKResponse) - 1);
+
+          sgxStatus = enc_wolfSSL_free(enclave_id, service->ssl);
+	  close(conn_fd);
+          continue;
+        }
+
+        // int flags = fcntl(conn_fd, F_GETFL);
+        // flags |= O_NONBLOCK;
+        // if (fcntl(conn_fd, F_SETFL, flags) < 0) {
+        //   printf("client_fd[%d] fcntl() error\n", conn_fd);
+        //   return 0;
+        // }
+
+        // Handle request
+        printf("Handle request here\n");
+        // service->handler(events[i].data.fd);
+
+      } else {
+        // Existing connection
+        // Read or close
+        event.events = EPOLLIN | EPOLLET;
+        event.data.fd = conn_fd;
+      }
+    }
   }
-
-  sgxStatus = enc_wolfSSL_CTX_new(global_eid, &ctx, method);
-  if (sgxStatus != SGX_SUCCESS || ctx < 0) {
-    printf("wolfSSL_CTX_new failure\n");
-    return EXIT_FAILURE;
-  }
-
-  /* Load server certificates into WOLFSSL_CTX */
-  sgxStatus = enc_wolfSSL_CTX_use_certificate_buffer(
-      global_eid, &ret, ctx, server_cert_der_2048, sizeof_server_cert_der_2048,
-      SSL_FILETYPE_ASN1);
-  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
-    printf("enc_wolfSSL_CTX_use_certificate_chain_buffer_format failure\n");
-    return EXIT_FAILURE;
-  }
-
-  /* Load server key into WOLFSSL_CTX */
-  sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
-      global_eid, &ret, ctx, server_key_der_2048, sizeof_server_key_der_2048,
-      SSL_FILETYPE_ASN1);
-
-  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
-    printf("wolfSSL_CTX_use_PrivateKey_buffer failure \n");
-    return EXIT_FAILURE;
-  }
-  return SGX_SUCCESS;
-  
 }
+
 int main(int argc, char *argv[]) {
   int ret;
-
+  int sgxStatus;
   ThreadPool didQueryPool(NUM_DID_REQ_THR);
   ThreadPool didDocFetchPool(NUM_DRF_RECV_THR);
   /* Changing dir to where the executable is.*/
@@ -511,33 +485,44 @@ int main(int argc, char *argv[]) {
   if (initialize_enclave() < 0)
     return 1;
 
-  enc_wolfSSL_Debugging_ON(global_eid);
-  ret = init_sgx_ssl();
-  if (ret == EXIT_FAILURE)
-    return 1;
+  // Initialize WolfSSL
+  enc_wolfSSL_Init(enclave_id, &sgxStatus);
 
   // Initialize thread pools
   didQueryPool.init();
   didDocFetchPool.init();
 
+  struct service_port did_req_service;
+  did_req_service.server_fd = prepare_socket(DID_REQ_PORT);
+  if (did_req_service.server_fd == -1)
+    return 1;
+  did_req_service.epoll_fd = prepare_epoll(did_req_service.server_fd);
+  if (did_req_service.epoll_fd == -1)
+    return 1;
+  did_req_service.is_tls = TRUE;
+  did_req_service.ctx = init_ssl_ctx();
+  did_req_service.handler = hello;
+
   // Create, bind, listen
-  did_req_sock = prepare_socket(DID_REQ_PORT);
-  if (did_req_sock == -1)
-    return 0;
+  // did_req_sock = prepare_socket(DID_REQ_PORT);
+  // if (did_req_sock == -1)
+  //   return 0;
 
-  did_req_epoll_fd = prepare_epoll(did_req_sock);
-  if (did_req_epoll_fd == -1)
-    return 0;
+  // did_req_epoll_fd = prepare_epoll(did_req_sock);
+  // if (did_req_epoll_fd == -1)
+  //   return 0;
 
-  char c;
-  while (1) {
-    didQueryPool.submit(worker_thread, did_req_sock, did_req_epoll_fd,
-                        WITH_TLS);
-  }
+  printf("Starting worker threads\n");
+
+  auto wt1 = didQueryPool.submit(worker_thread, &did_req_service);
+  auto wt2 = didQueryPool.submit(worker_thread, &did_req_service);
+  auto wt3 = didQueryPool.submit(worker_thread, &did_req_service);
+  auto wt4 = didQueryPool.submit(worker_thread, &did_req_service);
+  auto wt5 = didQueryPool.submit(worker_thread, &did_req_service);
 
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();
-  sgx_destroy_enclave(global_eid);
+  sgx_destroy_enclave(enclave_id);
 
   return 0;
 }

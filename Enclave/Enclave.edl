@@ -1,13 +1,16 @@
 enclave {
 
    // -----------------WOLFSSL-INCLUDE-START----------------
+    from "sgx_pthread.edl" import *;
+    from "sgx_tstdc.edl" import *;
+    
     include "wolfssl/ssl.h"
     include "wolfssl/wolfcrypt/settings.h"
     include "wolfssl/wolfcrypt/types.h"
     include "wolfcrypt/test/test.h"
     include "wolfcrypt/benchmark/benchmark.h"
 
-
+    
    // -----------------WOLFSSL-INCLUDE-END------------------
 
     untrusted {

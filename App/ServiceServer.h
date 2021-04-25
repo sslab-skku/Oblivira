@@ -23,12 +23,17 @@ struct service {
   int epoll_fd;
   int is_tls;
   long ctx;
-  long ssl;
+  /* long ssl; */
   void *(*handler)(void *arg);
   // struct epoll_event events[256];
 };
 
-void *worker_thread(struct service *service);
+
+struct thread_data {
+  int conn_fd;
+  long ssl;
+};
+void *worker_thread(struct service *service,struct thread_data* thread_data);
 void init_service_server(void);
 
 int init_service(struct service *service, int port, int is_tls,

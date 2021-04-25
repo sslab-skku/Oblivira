@@ -59,16 +59,17 @@ static int prepare_epoll(int sock) {
   return epoll_fd;
 }
 
-static int __create_tls_channel(struct service *service, int conn_fd) {
+static int __create_tls_channel(struct service *service,
+                                struct thread_data *thread_data, int conn_fd) {
   int sgxStatus, ret;
 
-  sgxStatus = enc_wolfSSL_new(enclave_id, &service->ssl, service->ctx);
-  if (sgxStatus != SGX_SUCCESS || service->ssl < 0) {
+  sgxStatus = enc_wolfSSL_new(enclave_id, &thread_data->ssl, service->ctx);
+  if (sgxStatus != SGX_SUCCESS || thread_data->ssl < 0) {
     printf("wolfSSL_new failure\n");
     return EXIT_FAILURE;
   }
   printf("[TLS] context creation successful\n");
-  sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, service->ssl, conn_fd);
+  sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, thread_data->ssl, conn_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     printf("wolfSSL_set_fd failure\n");
     return EXIT_FAILURE;
@@ -79,13 +80,12 @@ static int __create_tls_channel(struct service *service, int conn_fd) {
   return EXIT_SUCCESS;
 }
 
-void *worker_thread(struct service *service, struct thread_data* data) {
+void *worker_thread(struct service *service, struct thread_data *thread_data) {
 
   int i;
   int ret;
 
   // Connection per thread
-  int conn_fd;
   struct sockaddr_in conn_addr;
   socklen_t addrlen = sizeof(struct sockaddr_in);
   struct epoll_event event;
@@ -111,42 +111,43 @@ void *worker_thread(struct service *service, struct thread_data* data) {
       if (events[i].data.fd == service->server_fd) {
         printf("[EventLoop] Accepting client\n");
         // accept
-        conn_fd =
+        thread_data->conn_fd =
             accept(service->server_fd, (struct sockaddr *)&conn_addr, &addrlen);
 
         // If accept fails, then skip
-        if (conn_fd < 0)
+        if (thread_data->conn_fd < 0)
           continue;
 
-        service->handler((void*)service);
         // Create TLS channel if 'is_tls'
         if (service->is_tls == TRUE) {
-          ret = __create_tls_channel(service, conn_fd);
+          ret =
+              __create_tls_channel(service, thread_data, thread_data->conn_fd);
           if (ret == EXIT_FAILURE)
             continue;
           printf("[EventLoop][TLS][%p] Accept Succeeded\n", pthread_self());
         }
+
+        printf("Handle request here\n");
+        service->handler((void *)thread_data);
+	printf("Finished Handling request\n");
+        // int flags = fcntl(thread_data->conn_fd, F_GETFL);
+        // flags |= O_NONBLOCK;
+        // if (fcntl(thread_data->conn_fd, F_SETFL, flags) < 0) {
+        //   printf("client_fd[%d] fcntl() error\n", thread_data->conn_fd);
+        //   return 0;
+        // }
+
+        // Handle request
+
+        // service->handler(events[i].data.fd);
+      } else {
+        // Existing connection
+        // Read or close
+        event.events = EPOLLIN | EPOLLET;
+        event.data.fd = thread_data->conn_fd;
       }
-
-      // int flags = fcntl(conn_fd, F_GETFL);
-      // flags |= O_NONBLOCK;
-      // if (fcntl(conn_fd, F_SETFL, flags) < 0) {
-      //   printf("client_fd[%d] fcntl() error\n", conn_fd);
-      //   return 0;
-      // }
-
-      // Handle request
-      printf("Handle request here\n");
-      // service->handler(events[i].data.fd);
-    }
-    else {
-      // Existing connection
-      // Read or close
-      event.events = EPOLLIN | EPOLLET;
-      event.data.fd = conn_fd;
     }
   }
-}
 }
 
 // Initialize SSL Context

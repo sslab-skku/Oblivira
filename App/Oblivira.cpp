@@ -24,13 +24,13 @@
 #define CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256"
 
 #define NUM_DID_REQ_THR 4
-#define NUM_DRF_RECV_THR 4
+#define NUM_DOC_FETCH_THR 4
 
 #define MAX_PATH FILENAME_MAX
 #define MAX_EVENTS 2000
 
-#define DID_REQ_PORT 8080
 #define DID_REQ_PORT 8888
+#define DOC_FETCH_PORT 8080
 
 #define WITH_TLS 1
 #define WITHOUT_TLS 0
@@ -236,19 +236,17 @@ void *did_req_handler(void *arg) {
   sgxStatus =
       enc_wolfSSL_write(enclave_id, &ret, thread_data->ssl,
                         (void *)httpOKResponse, strlen(httpOKResponse) - 1);
-  printf("Sent response\n");
   sgxStatus = enc_wolfSSL_free(enclave_id, thread_data->ssl);
-  printf("Freed ssl context\n");
   close(thread_data->conn_fd);
-  printf("closed socket\n");
   return NULL;
 }
 
 int main(int argc, char *argv[]) {
   int ret;
+  int i;
   int sgxStatus;
   ThreadPool didQueryPool(NUM_DID_REQ_THR);
-  ThreadPool didDocFetchPool(NUM_DRF_RECV_THR);
+  ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
   /* Changing dir to where the executable is.*/
   // char absolutePath[MAX_PATH];
   // struct epoll_event epevent;
@@ -265,26 +263,24 @@ int main(int argc, char *argv[]) {
   didDocFetchPool.init();
 
   struct service did_req_service;
-  ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, did_req_handler);
+  ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED,
+                     did_req_handler);
+
+  struct service did_doc_fetch_service;
+  ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
+                     NULL);
 
   struct thread_data thread_data;
 
-  // Create, bind, listen
-  // did_req_sock = prepare_socket(DID_REQ_PORT);
-  // if (did_req_sock == -1)
-  //   return 0;
-
-  // did_req_epoll_fd = prepare_epoll(did_req_sock);
-  // if (did_req_epoll_fd == -1)
-  //   return 0;
-
   printf("Starting worker threads\n");
 
-  auto wt1 = didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
-  auto wt2 = didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
-  auto wt3 = didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
-  auto wt4 = didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
-  auto wt5 = didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
+  for (i = 0; i < NUM_DID_REQ_THR; i++) {
+    didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
+  }
+
+  for (i = 0; i < NUM_DOC_FETCH_THR; i++) {
+    didDocFetchPool.submit(worker_thread, &did_doc_fetch_service, &thread_data);
+  }
 
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();

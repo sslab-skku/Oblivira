@@ -206,6 +206,7 @@ int enc_wolfSSL_CTX_load_verify_buffer(long id, const unsigned char *in,
   if (ctx == NULL) {
     return -1;
   }
+  wolfSSL_CTX_set_verify(ctx,SSL_VERIFY_NONE,NULL);
   return wolfSSL_CTX_load_verify_buffer(ctx, in, sz, format);
 }
 

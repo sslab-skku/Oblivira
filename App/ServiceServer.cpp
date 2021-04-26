@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,8 @@
 #include "ServiceServer.h"
 
 static std::vector<struct service *> services;
+
+static int kill_switch = 0;
 
 static int prepare_socket(int port) {
 
@@ -30,6 +33,7 @@ static int prepare_socket(int port) {
 
   if (bind(sockfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) <
       0) {
+    printf("Creating socket for %d failed\n", ntohs(serveraddr.sin_port));
     perror("bind(2) failed");
     exit(EXIT_FAILURE);
   }
@@ -84,11 +88,11 @@ static int __create_tls_channel(struct service *service,
   return EXIT_SUCCESS;
 }
 
-void *worker_thread(struct service *service, struct thread_data *thread_data) {
+void *worker_thread(struct service *service){
 
   int i;
   int ret;
-
+  struct thread_data thread_data;
   // Connection per thread
   struct sockaddr_in conn_addr;
   socklen_t addrlen = sizeof(struct sockaddr_in);
@@ -96,14 +100,14 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
   int events_cnt;
 
   // For later use
-  thread_data->service = service;
+  thread_data.service = service;
 
   // 256 event buffer per thread
   struct epoll_event events[EVENTS_BUFF_SZ];
 
   printf("[%p]Entering event looop\n", pthread_self());
   // Worker thread loop
-  while (1) {
+  while (kill_switch == 0) {
     // Fetch events
     events_cnt = epoll_wait(service->epoll_fd, events, EVENTS_BUFF_SZ, 0);
     // printf("[Event Loop] events_cnt:%d\n", events_cnt);
@@ -118,29 +122,30 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
       if (events[i].data.fd == service->server_fd) {
         printf("[EventLoop] Accepting client\n");
         // accept
-        thread_data->conn_fd =
+        thread_data.conn_fd =
             accept(service->server_fd, (struct sockaddr *)&conn_addr, &addrlen);
 
         // If accept fails, then skip
-        if (thread_data->conn_fd < 0)
+        if (thread_data.conn_fd < 0)
           continue;
 
         // Create TLS channel if 'is_tls'
         if (service->is_server_tls == TRUE) {
           ret =
-              __create_tls_channel(service, thread_data, thread_data->conn_fd);
+              __create_tls_channel(service, &thread_data, thread_data.conn_fd);
           if (ret == EXIT_FAILURE)
             continue;
           printf("[EventLoop][TLS][%p] Accept Succeeded\n", pthread_self());
         }
 
         printf("Handle request here\n");
-        service->handler((void *)thread_data);
+        service->handler(&thread_data);
         printf("Finished Handling request\n");
-        // int flags = fcntl(thread_data->conn_fd, F_GETFL);
+        close(thread_data.conn_fd);
+        // int flags = fcntl(thread_data.conn_fd, F_GETFL);
         // flags |= O_NONBLOCK;
-        // if (fcntl(thread_data->conn_fd, F_SETFL, flags) < 0) {
-        //   printf("client_fd[%d] fcntl() error\n", thread_data->conn_fd);
+        // if (fcntl(thread_data.conn_fd, F_SETFL, flags) < 0) {
+        //   printf("client_fd[%d] fcntl() error\n", thread_data.conn_fd);
         //   return 0;
         // }
 
@@ -151,10 +156,11 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
         // Existing connection
         // Read or close
         event.events = EPOLLIN | EPOLLET;
-        event.data.fd = thread_data->conn_fd;
+        event.data.fd = thread_data.conn_fd;
       }
     }
   }
+  printf("[%p]Exiting event looop\n", pthread_self());
 }
 
 // Initialize SSL Context
@@ -204,6 +210,7 @@ static long init_ssl_client_ctx(void) {
   long ctx;
   // long ssl;
   long method;
+
   sgxStatus = enc_wolfTLSv1_2_client_method(enclave_id, &method);
   if (sgxStatus != SGX_SUCCESS) {
     printf("wolfTLSv1_2_client_method failure\n");
@@ -240,7 +247,8 @@ static long init_ssl_client_ctx(void) {
     printf("Error loading cert\n");
     return EXIT_FAILURE;
   }
-  return EXIT_SUCCESS;
+
+  return ctx;
 }
 
 void init_service_server() {
@@ -257,49 +265,45 @@ int init_service(struct service *service, int port, int is_server_tls,
   if (service->epoll_fd == -1)
     return -1;
   service->is_server_tls = is_server_tls;
-  if (is_server_tls == TRUE) {
+  if (is_server_tls == TLS_ENABLED) {
     service->server_ctx = init_ssl_server_ctx();
     if (service->server_ctx < 0)
       return -1;
   }
   service->is_client_tls = is_client_tls;
-  if (is_client_tls == TRUE) {
+  if (is_client_tls == TLS_ENABLED) {
     service->client_ctx = init_ssl_client_ctx();
-    if (service->client_ctx < 0)
-      return -1;
   }
 
   service->handler = handler;
-
   services.push_back(service);
   return 0;
 }
 
+void stop_worker_threads() { kill_switch = 1; }
 void destroy_service(struct service *service) {
   int ret;
-  printf("destroying service");
   close(service->server_fd);
   close(service->epoll_fd);
   enc_wolfSSL_CTX_free(enclave_id, service->server_ctx);
   enc_wolfSSL_CTX_free(enclave_id, service->client_ctx);
 }
 
-void destroy_services(void) {
-  int ret;
-  printf("destroying all services\n");
-  for (std::vector<struct service *>::iterator it = services.begin();
-       it != services.end(); ++it) {
+// void destroy_services(void) {
+//   int ret;
+//   printf("destroying all services\n");
+//   for (std::vector<struct service *>::iterator it = services.begin();
+//        it != services.end(); ++it) {
 
-    printf("Freeing wolfSSL CTXs\n");
-    enc_wolfSSL_CTX_free(enclave_id, (*it)->server_ctx);
-    enc_wolfSSL_CTX_free(enclave_id, (*it)->client_ctx);
-    printf("Closing sockets and epolls\n");
-    close((*it)->server_fd);
-    close((*it)->epoll_fd);
+//     printf("Freeing wolfSSL CTXs\n");
+//     enc_wolfSSL_CTX_free(enclave_id, (*it)->server_ctx);
+//     enc_wolfSSL_CTX_free(enclave_id, (*it)->client_ctx);
+//     printf("Closing sockets and epolls\n");
+//     close((*it)->server_fd);
+//     close((*it)->epoll_fd);
 
-  }
+//   }
 
-  enc_wolfSSL_Cleanup(enclave_id, &ret);
+//   enc_wolfSSL_Cleanup(enclave_id, &ret);
 
-
-}
+// }

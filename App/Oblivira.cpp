@@ -41,6 +41,8 @@
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t enclave_id = 0;
 
+struct service did_req_service;
+struct service did_doc_fetch_service;
 ThreadPool didQueryPool(NUM_DID_REQ_THR);
 ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
 // EPOLL fd
@@ -286,7 +288,7 @@ void *did_doc_fetch_handler(void *arg) {
   ip = domain2ip(extract_blockchain_url(NULL));
   if (ip == NULL)
     goto close_out;
-  printf("Connecting to %s\n", ip);
+  printf("Connecting to %s:%d\n", ip, ntohs(servAddr.sin_port));
 
   /* looks for the server at the entered address (ip in the command line) */
   if (inet_pton(AF_INET, ip, &servAddr.sin_addr) < 1) {
@@ -307,10 +309,11 @@ void *did_doc_fetch_handler(void *arg) {
       enc_wolfSSL_new(enclave_id, &ssl, thread_data->service->client_ctx);
   if (sgxStatus != SGX_SUCCESS || ssl < 0) {
     printf("wolfSSL_new error.\n");
-    goto close_both_out;
+    goto close_out;
   }
 
-  printf("ssl:%ld\n", ssl);
+  printf("client_ctx: %ld\n", thread_data->service->client_ctx);
+  printf("ssl: %ld\n", thread_data->service->client_ctx);
 
   sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, bc_server_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
@@ -327,8 +330,6 @@ void *did_doc_fetch_handler(void *arg) {
 
 free_close_out:
   sgxStatus = enc_wolfSSL_free(enclave_id, ssl);
-close_both_out:
-  close(thread_data->conn_fd);
 close_out:
   close(bc_server_fd);
 
@@ -336,10 +337,19 @@ close_out:
 }
 
 void destroy_oblivira(int arg) {
+  printf("Shutting down oblivira\n");
+  stop_worker_threads();
+  sleep(5);
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();
-  destroy_services();
+  printf("Thread pool shut down\n");
+  // destroy_services();
+  destroy_service(&did_req_service);
+  destroy_service(&did_doc_fetch_service);
+  printf("Services shut down\n");
   sgx_destroy_enclave(enclave_id);
+  printf("Bye\n");
+  exit(1);
 }
 int main(int argc, char *argv[]) {
   int ret;
@@ -350,7 +360,7 @@ int main(int argc, char *argv[]) {
   // char absolutePath[MAX_PATH];
   // struct epoll_event epevent;
 
-  // signal(SIGINT, destroy_oblivira);
+  signal(SIGINT, destroy_oblivira);
 
   /* Initialize the enclave */
   if (initialize_enclave() < 0)
@@ -363,11 +373,9 @@ int main(int argc, char *argv[]) {
   didQueryPool.init();
   didDocFetchPool.init();
 
-  struct service did_req_service;
   ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
                      did_req_handler);
 
-  struct service did_doc_fetch_service;
   ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
                      TLS_ENABLED, did_doc_fetch_handler);
 
@@ -376,11 +384,12 @@ int main(int argc, char *argv[]) {
   printf("Starting worker threads\n");
 
   for (i = 0; i < NUM_DID_REQ_THR; i++) {
-    didQueryPool.submit(worker_thread, &did_req_service, &thread_data);
+
+    didQueryPool.submit(worker_thread, &did_req_service);
   }
 
   for (i = 0; i < NUM_DOC_FETCH_THR; i++) {
-    didDocFetchPool.submit(worker_thread, &did_doc_fetch_service, &thread_data);
+    didDocFetchPool.submit(worker_thread, &did_doc_fetch_service);
   }
   while (1) {
 
@@ -388,15 +397,14 @@ int main(int argc, char *argv[]) {
     c = getchar();
     if ((c == 'q') || (c == EOF)) // stop if EOF or 'q'.
       break;
-
   }
-
-  printf("Terminating...\n");
-  // destroy_service(&did_req_service);
-  // destroy_service(&did_doc_fetch_service);
-
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();
+
+  printf("Terminating...\n");
+  destroy_service(&did_req_service);
+  destroy_service(&did_doc_fetch_service);
+
   // destroy_services();
   // sgx_destroy_enclave(enclave_id);
 

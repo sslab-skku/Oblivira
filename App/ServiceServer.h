@@ -36,11 +36,13 @@ struct thread_data {
   int conn_fd;
   long ssl;
 };
-void *worker_thread(struct service *service, struct thread_data *thread_data);
+void *worker_thread(struct service *service);
 void init_service_server(void);
 
 int init_service(struct service *service, int port, int is_server_tls,
                  int is_client_tls, void *(*handler)(void *));
+
+void stop_worker_threads();
 void destroy_service(struct service *service);
 void destroy_services(void);
 static const char httpOKResponse[100000] =

@@ -161,6 +161,7 @@ void *worker_thread(struct service *service){
     }
   }
   printf("[%p]Exiting event looop\n", pthread_self());
+  pthread_exit(NULL);
 }
 
 // Initialize SSL Context

@@ -339,7 +339,6 @@ close_out:
 void destroy_oblivira(int arg) {
   printf("Shutting down oblivira\n");
   stop_worker_threads();
-  sleep(5);
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();
   printf("Thread pool shut down\n");

@@ -2,6 +2,7 @@
 SGX_SDK ?= /opt/intel/sgxsdk
 SGX_MODE ?= SIM
 SGX_ARCH ?= x64
+SGX_DEBUG=1
 WOLFSSL_ROOT ?= $(shell readlink -f ../..)
 
 ifeq ($(shell getconf LONG_BIT), 32)
@@ -44,7 +45,8 @@ endif
 
 Crypto_Library_Name := sgx_tcrypto
 
-Wolfssl_C_Extra_Flags := -DWOLFSSL_SGX
+Wolfssl_C_Extra_Flags := -DWOLFSSL_SGX  -DDEBUG_WOLFSSL -DHAVE_WOLFSSL_TEST -DFP_MAX_BITS=8192  -DWOLFSSL_HAVE_SP_RSA -DWOLFSSL_HAVE_SP_DH  -DWOLFSSL_HAVE_SP_ECC    
+
 Wolfssl_C_Files :=$(WOLFSSL_ROOT)/wolfcrypt/src/aes.c\
 					$(WOLFSSL_ROOT)/wolfcrypt/src/arc4.c\
 					$(WOLFSSL_ROOT)/wolfcrypt/src/asn.c\
@@ -109,7 +111,7 @@ endif
 
 Flags_Just_For_C := -Wno-implicit-function-declaration -std=c11
 Common_C_Cpp_Flags := $(SGX_COMMON_CFLAGS) -nostdinc -fvisibility=hidden -fpie -fstack-protector $(Wolfssl_Include_Paths) -fno-builtin-printf -I.
-Wolfssl_C_Flags := $(Flags_Just_For_C) $(Common_C_Cpp_Flags) $(Wolfssl_C_Extra_Flags)
+Wolfssl_C_Flags := $(Flags_Just_For_C) $(Common_C_Cpp_Flags) $(Wolfssl_C_Extra_Flags) 
 
 Wolfssl_Link_Flags := $(SGX_COMMON_CFLAGS) -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L$(SGX_LIBRARY_PATH) \
 	-Wl,--whole-archive -l$(Trts_Library_Name) -Wl,--no-whole-archive \

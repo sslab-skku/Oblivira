@@ -243,6 +243,7 @@ int enc_wolfSSL_connect(long sslId) {
   if (ssl == NULL) {
     return -1;
   }
+  printf("Calling wolfssl_connect\n");
   return wolfSSL_connect(ssl);
 }
 

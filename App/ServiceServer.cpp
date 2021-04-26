@@ -284,6 +284,7 @@ int init_service(struct service *service, int port, int is_server_tls,
 void stop_worker_threads() { kill_switch = 1; }
 void destroy_service(struct service *service) {
   int ret;
+  epoll_ctl(service->epoll_fd, EPOLL_CTL_DEL, service->server_fd, NULL);
   close(service->server_fd);
   close(service->epoll_fd);
   enc_wolfSSL_CTX_free(enclave_id, service->server_ctx);

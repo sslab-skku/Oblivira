@@ -48,8 +48,11 @@
 extern "C" {
 #endif
 
-void printf(const char *fmt, ...);
-
+/* #define printf printf_sgx */
+void printf(const char *fmt, ...);               
+int sprintf(char* buf, const char *fmt, ...);    
+double current_time(void);
+  /* void printf_sgx(const char *fmt, ...); */
 int puts(const char *str);
 char *getenv(char *name);
 int fflush(void *stream);

@@ -358,13 +358,14 @@ int main(int argc, char *argv[]) {
   /* Changing dir to where the executable is.*/
   // char absolutePath[MAX_PATH];
   // struct epoll_event epevent;
-
+  
   signal(SIGINT, destroy_oblivira);
 
   /* Initialize the enclave */
   if (initialize_enclave() < 0)
     return 1;
 
+  enc_wolfSSL_Debugging_ON(enclave_id);
   // Initialize WolfSSL
   init_service_server();
 

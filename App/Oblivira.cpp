@@ -32,6 +32,8 @@
 #define DID_REQ_PORT 8888
 #define DOC_FETCH_PORT 8080
 
+#define DRF_MAX_LEN 2048
+
 #define WITH_TLS 1
 #define WITHOUT_TLS 0
 
@@ -241,6 +243,27 @@ void *did_req_handler(void *arg) {
   return NULL;
 }
 
+void *did_doc_fetch_handler(void *arg) {
+  int ret, n, sgxStatus;
+  char input[DRF_MAX_LEN];
+  struct thread_data *thread_data = (struct thread_data *)arg;
+
+  // 1. receive DRF
+  n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
+  if (n < 0) {
+    pthread_exit(NULL);
+  }
+  // 2. Parse DRF to extract blockchain URL
+
+  // 3. Fetch document
+
+  sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, thread_data->ssl);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("Error in enc_wolfSSL_connect");
+    pthread_exit(NULL);
+  }
+}
+
 int main(int argc, char *argv[]) {
   int ret;
   int i;
@@ -264,11 +287,11 @@ int main(int argc, char *argv[]) {
 
   struct service did_req_service;
   ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED,
-                     did_req_handler);
+                     TLS_DISABLED, did_req_handler);
 
   struct service did_doc_fetch_service;
   ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
-                     NULL);
+                     TLS_ENABLED, NULL);
 
   struct thread_data thread_data;
 

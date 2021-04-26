@@ -63,7 +63,8 @@ static int __create_tls_channel(struct service *service,
                                 struct thread_data *thread_data, int conn_fd) {
   int sgxStatus, ret;
 
-  sgxStatus = enc_wolfSSL_new(enclave_id, &thread_data->ssl, service->ctx);
+  sgxStatus =
+      enc_wolfSSL_new(enclave_id, &thread_data->ssl, service->server_ctx);
   if (sgxStatus != SGX_SUCCESS || thread_data->ssl < 0) {
     printf("wolfSSL_new failure\n");
     return EXIT_FAILURE;
@@ -119,7 +120,7 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
           continue;
 
         // Create TLS channel if 'is_tls'
-        if (service->is_tls == TRUE) {
+        if (service->is_server_tls == TRUE) {
           ret =
               __create_tls_channel(service, thread_data, thread_data->conn_fd);
           if (ret == EXIT_FAILURE)
@@ -129,7 +130,7 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
 
         printf("Handle request here\n");
         service->handler((void *)thread_data);
-	printf("Finished Handling request\n");
+        printf("Finished Handling request\n");
         // int flags = fcntl(thread_data->conn_fd, F_GETFL);
         // flags |= O_NONBLOCK;
         // if (fcntl(thread_data->conn_fd, F_SETFL, flags) < 0) {
@@ -151,7 +152,7 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
 }
 
 // Initialize SSL Context
-static long init_ssl_ctx(void) {
+static long init_ssl_server_ctx(void) {
   int sgxStatus;
   int ret;
   long ctx;
@@ -191,21 +192,76 @@ static long init_ssl_ctx(void) {
   return ctx;
 }
 
+static long init_ssl_client_ctx(void) {
+  int sgxStatus;
+  int ret;
+  long ctx;
+  // long ssl;
+  long method;
+  sgxStatus = enc_wolfTLSv1_2_client_method(enclave_id, &method);
+  if (sgxStatus != SGX_SUCCESS) {
+    printf("wolfTLSv1_2_client_method failure\n");
+    return EXIT_FAILURE;
+  }
+
+  sgxStatus = enc_wolfSSL_CTX_new(enclave_id, &ctx, method);
+  if (sgxStatus != SGX_SUCCESS || ctx < 0) {
+    printf("wolfSSL_CTX_new failure\n");
+    return EXIT_FAILURE;
+  }
+
+  sgxStatus = enc_wolfSSL_CTX_use_certificate_chain_buffer_format(
+      enclave_id, &ret, ctx, client_cert_der_2048, sizeof_client_cert_der_2048,
+      SSL_FILETYPE_ASN1);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("enc_wolfSSL_CTX_use_certificate_chain_buffer_format failure\n");
+    return EXIT_FAILURE;
+  }
+
+  sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
+      enclave_id, &ret, ctx, client_key_der_2048, sizeof_client_key_der_2048,
+      SSL_FILETYPE_ASN1);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("wolfSSL_CTX_use_PrivateKey_buffer failure\n");
+    return EXIT_FAILURE;
+  }
+
+  sgxStatus = enc_wolfSSL_CTX_load_verify_buffer(
+      enclave_id, &ret, ctx, ca_cert_der_2048, sizeof_ca_cert_der_2048,
+      SSL_FILETYPE_ASN1);
+
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("Error loading cert\n");
+    return EXIT_FAILURE;
+  }
+}
+
 void init_service_server() {
   int sgxStatus;
   enc_wolfSSL_Init(enclave_id, &sgxStatus);
 }
 
-int init_service(struct service *service, int port, int is_tls,
-                 void *(*handler)(void *)) {
+int init_service(struct service *service, int port, int is_server_tls,
+                 int is_client_tls, void *(*handler)(void *)) {
   service->server_fd = prepare_socket(port);
   if (service->server_fd == -1)
-    return 1;
+    return -1;
   service->epoll_fd = prepare_epoll(service->server_fd);
   if (service->epoll_fd == -1)
-    return 1;
-  service->is_tls = TRUE;
-  service->ctx = init_ssl_ctx();
+    return -1;
+  service->is_server_tls = is_server_tls;
+  if (is_server_tls == TRUE) {
+    service->server_ctx = init_ssl_server_ctx();
+    if (service->server_ctx < 0)
+      return -1;
+  }
+  service->is_client_tls = is_client_tls;
+  if (is_client_tls == TRUE) {
+    service->client_ctx = init_ssl_client_ctx();
+    if (service->client_ctx < 0)
+      return -1;
+  }
+
   service->handler = handler;
 
   return 0;

@@ -8,7 +8,7 @@
 #include <sys/time.h>
 
 #include "Enclave_u.h"
-#include "certs_test.h"
+/* #include "certs_test.h" */
 #include <wolfssl/ssl.h>
 
 #define EVENTS_BUFF_SZ 256

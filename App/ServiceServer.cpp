@@ -12,6 +12,7 @@
 #include <sys/time.h>
 
 #include "ServiceServer.h"
+#include "__certs_test.h"
 
 static std::vector<struct service *> services;
 
@@ -88,7 +89,7 @@ static int __create_tls_channel(struct service *service,
   return EXIT_SUCCESS;
 }
 
-void *worker_thread(struct service *service){
+void *worker_thread(struct service *service) {
 
   int i;
   int ret;
@@ -215,13 +216,18 @@ static long init_ssl_client_ctx(void) {
   sgxStatus = enc_wolfTLSv1_2_client_method(enclave_id, &method);
   if (sgxStatus != SGX_SUCCESS) {
     printf("wolfTLSv1_2_client_method failure\n");
-    return EXIT_FAILURE;
+    return -1;
   }
 
   sgxStatus = enc_wolfSSL_CTX_new(enclave_id, &ctx, method);
   if (sgxStatus != SGX_SUCCESS || ctx < 0) {
     printf("wolfSSL_CTX_new failure\n");
-    return EXIT_FAILURE;
+    return -1;
+  }
+
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("enc_wolfSSL_CTX_set_cpiher error\n");
+    return -1;
   }
 
   sgxStatus = enc_wolfSSL_CTX_use_certificate_chain_buffer_format(
@@ -229,7 +235,7 @@ static long init_ssl_client_ctx(void) {
       SSL_FILETYPE_ASN1);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     printf("enc_wolfSSL_CTX_use_certificate_chain_buffer_format failure\n");
-    return EXIT_FAILURE;
+    return -1;
   }
 
   sgxStatus = enc_wolfSSL_CTX_use_PrivateKey_buffer(
@@ -237,18 +243,20 @@ static long init_ssl_client_ctx(void) {
       SSL_FILETYPE_ASN1);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     printf("wolfSSL_CTX_use_PrivateKey_buffer failure\n");
-    return EXIT_FAILURE;
+    return -1;
   }
 
   sgxStatus = enc_wolfSSL_CTX_load_verify_buffer(
       enclave_id, &ret, ctx, ca_cert_der_2048, sizeof_ca_cert_der_2048,
       SSL_FILETYPE_ASN1);
-
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     printf("Error loading cert\n");
-    return EXIT_FAILURE;
+    return -1;
   }
 
+  const char *cipherList = "ECDHE-RSA-AES128-GCM-SHA256";
+  sgxStatus =
+      enc_wolfSSL_CTX_set_cipher_list(enclave_id, &ret, ctx, cipherList);
   return ctx;
 }
 
@@ -274,6 +282,8 @@ int init_service(struct service *service, int port, int is_server_tls,
   service->is_client_tls = is_client_tls;
   if (is_client_tls == TLS_ENABLED) {
     service->client_ctx = init_ssl_client_ctx();
+    if (service->client_ctx < 0)
+      return -1;
   }
 
   service->handler = handler;

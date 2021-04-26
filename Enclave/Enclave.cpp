@@ -28,6 +28,8 @@ WOLFSSL_CTX *CTX_TABLE[MAX_WOLFSSL_CTX];
 #ifndef MAX_WOLFSSL
 #define MAX_WOLFSSL 64
 #endif
+
+#include "__certs_test.h"
 WOLFSSL *SSL_TABLE[MAX_WOLFSSL];
 
 sgx_thread_mutex_t ctx_table_mutex = SGX_THREAD_MUTEX_INITIALIZER;
@@ -166,6 +168,7 @@ long enc_wolfSSL_CTX_new(long method) {
   if (ctx != NULL) {
     id = AddCTX(ctx);
   }
+  
   return id;
 }
 
@@ -239,11 +242,15 @@ int enc_wolfSSL_set_fd(long sslId, int fd) {
 }
 
 int enc_wolfSSL_connect(long sslId) {
+  
   WOLFSSL *ssl = GetSSL(sslId);
   if (ssl == NULL) {
     return -1;
   }
-  printf("Calling wolfssl_connect\n");
+  // const char *cipherList = "ECDHE-RSA-AES128-GCM-SHA256";
+  // wolfSSL_set_cipher_list(ssl, cipherList);
+  // wolfSSL_SetTmpDH(ssl, p, sizeof(p), g, sizeof(g));  
+  // printf("Calling wolfssl_connect\n");
   return wolfSSL_connect(ssl);
 }
 

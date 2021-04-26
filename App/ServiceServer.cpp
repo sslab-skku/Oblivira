@@ -234,6 +234,7 @@ static long init_ssl_client_ctx(void) {
     printf("Error loading cert\n");
     return EXIT_FAILURE;
   }
+  return EXIT_SUCCESS;
 }
 
 void init_service_server() {

@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 #include <libgen.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <pwd.h>
 #include <stdlib.h>
@@ -243,10 +244,24 @@ void *did_req_handler(void *arg) {
   return NULL;
 }
 
+char *extract_blockchain_url(char *input) { return "sslab.skku.edu"; }
+
+char* domain2ip_cache[8][2] = {
+    {"sslab.skku.edu", "115.145.154.77"},
+    {"ion", "111.111.111.111"},
+};
+char *domain2ip(char *domain) {
+  return "115.145.154.77";
+  
+}
 void *did_doc_fetch_handler(void *arg) {
   int ret, n, sgxStatus;
   char input[DRF_MAX_LEN];
   struct thread_data *thread_data = (struct thread_data *)arg;
+  // For connecting to blockchain
+  int bc_server_fd;
+  struct sockaddr_in servAddr;
+  char *ip;
 
   // 1. receive DRF
   n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
@@ -256,12 +271,45 @@ void *did_doc_fetch_handler(void *arg) {
   // 2. Parse DRF to extract blockchain URL
 
   // 3. Fetch document
+  bc_server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+  if (bc_server_fd < 0) {
+    printf("Failed to create socket. errno: %i\n", errno);
+    pthread_exit(NULL);
+  }
+
+  memset(&servAddr, 0, sizeof(servAddr)); /* clears memory block for use */
+  servAddr.sin_family = AF_INET;          /* sets addressfamily to internet*/
+  servAddr.sin_port = htons(443);        /* sets port to defined port */
+
+  // FIXME
+  ip = domain2ip(extract_blockchain_url(NULL));
+  if (ip == NULL)
+    pthread_exit(NULL);
+  printf("Connecting to %s\n", ip);
+
+  /* looks for the server at the entered address (ip in the command line) */
+  if (inet_pton(AF_INET, ip, &servAddr.sin_addr) < 1) {
+    /* checks validity of address */
+    ret = errno;
+    printf("Invalid Address. errno: %i\n", ret);
+    pthread_exit(NULL);
+  }
+
+  if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) <
+      0) {
+    ret = errno;
+    printf("Connect error. Error: %i\n", ret);
+    pthread_exit(NULL);
+  }
 
   sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, thread_data->ssl);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     printf("Error in enc_wolfSSL_connect");
     pthread_exit(NULL);
   }
+  printf("Connection successful\n");
+  return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -286,12 +334,12 @@ int main(int argc, char *argv[]) {
   didDocFetchPool.init();
 
   struct service did_req_service;
-  ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED,
-                     TLS_DISABLED, did_req_handler);
+  ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
+                     did_req_handler);
 
   struct service did_doc_fetch_service;
   ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
-                     TLS_ENABLED, NULL);
+                     TLS_ENABLED, did_doc_fetch_handler);
 
   struct thread_data thread_data;
 

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <vector>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -10,6 +11,8 @@
 #include <sys/time.h>
 
 #include "ServiceServer.h"
+
+static std::vector<struct service *> services;
 
 static int prepare_socket(int port) {
 
@@ -91,6 +94,9 @@ void *worker_thread(struct service *service, struct thread_data *thread_data) {
   socklen_t addrlen = sizeof(struct sockaddr_in);
   struct epoll_event event;
   int events_cnt;
+
+  // For later use
+  thread_data->service = service;
 
   // 256 event buffer per thread
   struct epoll_event events[EVENTS_BUFF_SZ];
@@ -265,5 +271,35 @@ int init_service(struct service *service, int port, int is_server_tls,
 
   service->handler = handler;
 
+  services.push_back(service);
   return 0;
+}
+
+void destroy_service(struct service *service) {
+  int ret;
+  printf("destroying service");
+  close(service->server_fd);
+  close(service->epoll_fd);
+  enc_wolfSSL_CTX_free(enclave_id, service->server_ctx);
+  enc_wolfSSL_CTX_free(enclave_id, service->client_ctx);
+}
+
+void destroy_services(void) {
+  int ret;
+  printf("destroying all services\n");
+  for (std::vector<struct service *>::iterator it = services.begin();
+       it != services.end(); ++it) {
+
+    printf("Freeing wolfSSL CTXs\n");
+    enc_wolfSSL_CTX_free(enclave_id, (*it)->server_ctx);
+    enc_wolfSSL_CTX_free(enclave_id, (*it)->client_ctx);
+    printf("Closing sockets and epolls\n");
+    close((*it)->server_fd);
+    close((*it)->epoll_fd);
+
+  }
+
+  enc_wolfSSL_Cleanup(enclave_id, &ret);
+
+
 }

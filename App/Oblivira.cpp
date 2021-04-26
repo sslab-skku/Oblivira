@@ -9,10 +9,10 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <pwd.h>
+#include <sgx_urts.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-#include <sgx_urts.h>
 
 #include <wolfssl/certs_test.h>
 #include <wolfssl/ssl.h>
@@ -41,6 +41,8 @@
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t enclave_id = 0;
 
+ThreadPool didQueryPool(NUM_DID_REQ_THR);
+ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
 // EPOLL fd
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 // For DID requests, and DRF receiving
@@ -246,27 +248,25 @@ void *did_req_handler(void *arg) {
 
 char *extract_blockchain_url(char *input) { return "sslab.skku.edu"; }
 
-char* domain2ip_cache[8][2] = {
+char *domain2ip_cache[8][2] = {
     {"sslab.skku.edu", "115.145.154.77"},
     {"ion", "111.111.111.111"},
 };
-char *domain2ip(char *domain) {
-  return "115.145.154.77";
-  
-}
+char *domain2ip(char *domain) { return "115.145.154.77"; }
 void *did_doc_fetch_handler(void *arg) {
   int ret, n, sgxStatus;
   char input[DRF_MAX_LEN];
   struct thread_data *thread_data = (struct thread_data *)arg;
   // For connecting to blockchain
   int bc_server_fd;
-  struct sockaddr_in servAddr;
+  long ssl;
   char *ip;
+  struct sockaddr_in servAddr;
 
   // 1. receive DRF
   n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
   if (n < 0) {
-    pthread_exit(NULL);
+    goto close_out;
   }
   // 2. Parse DRF to extract blockchain URL
 
@@ -275,17 +275,17 @@ void *did_doc_fetch_handler(void *arg) {
 
   if (bc_server_fd < 0) {
     printf("Failed to create socket. errno: %i\n", errno);
-    pthread_exit(NULL);
+    goto close_out;
   }
 
   memset(&servAddr, 0, sizeof(servAddr)); /* clears memory block for use */
   servAddr.sin_family = AF_INET;          /* sets addressfamily to internet*/
-  servAddr.sin_port = htons(443);        /* sets port to defined port */
+  servAddr.sin_port = htons(443);         /* sets port to defined port */
 
   // FIXME
   ip = domain2ip(extract_blockchain_url(NULL));
   if (ip == NULL)
-    pthread_exit(NULL);
+    goto close_out;
   printf("Connecting to %s\n", ip);
 
   /* looks for the server at the entered address (ip in the command line) */
@@ -293,34 +293,64 @@ void *did_doc_fetch_handler(void *arg) {
     /* checks validity of address */
     ret = errno;
     printf("Invalid Address. errno: %i\n", ret);
-    pthread_exit(NULL);
+    goto close_out;
   }
 
   if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) <
       0) {
     ret = errno;
     printf("Connect error. Error: %i\n", ret);
-    pthread_exit(NULL);
+    goto close_out;
   }
 
-  sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, thread_data->ssl);
+  sgxStatus =
+      enc_wolfSSL_new(enclave_id, &ssl, thread_data->service->client_ctx);
+  if (sgxStatus != SGX_SUCCESS || ssl < 0) {
+    printf("wolfSSL_new error.\n");
+    goto close_both_out;
+  }
+
+  printf("ssl:%ld\n", ssl);
+
+  sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, bc_server_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
-    printf("Error in enc_wolfSSL_connect");
-    pthread_exit(NULL);
+    printf("wolfSSL_set_fd failure\n");
+    goto free_close_out;
+  }
+
+  sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, ssl);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    printf("Error in enc_wolfSSL_connect: %d\n", ret);
+    goto free_close_out;
   }
   printf("Connection successful\n");
+
+free_close_out:
+  sgxStatus = enc_wolfSSL_free(enclave_id, ssl);
+close_both_out:
+  close(thread_data->conn_fd);
+close_out:
+  close(bc_server_fd);
+
   return NULL;
 }
 
+void destroy_oblivira(int arg) {
+  didQueryPool.shutdown();
+  didDocFetchPool.shutdown();
+  destroy_services();
+  sgx_destroy_enclave(enclave_id);
+}
 int main(int argc, char *argv[]) {
   int ret;
   int i;
   int sgxStatus;
-  ThreadPool didQueryPool(NUM_DID_REQ_THR);
-  ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
+
   /* Changing dir to where the executable is.*/
   // char absolutePath[MAX_PATH];
   // struct epoll_event epevent;
+
+  // signal(SIGINT, destroy_oblivira);
 
   /* Initialize the enclave */
   if (initialize_enclave() < 0)
@@ -352,10 +382,23 @@ int main(int argc, char *argv[]) {
   for (i = 0; i < NUM_DOC_FETCH_THR; i++) {
     didDocFetchPool.submit(worker_thread, &did_doc_fetch_service, &thread_data);
   }
+  while (1) {
+
+    char c = '\0';
+    c = getchar();
+    if ((c == 'q') || (c == EOF)) // stop if EOF or 'q'.
+      break;
+
+  }
+
+  printf("Terminating...\n");
+  // destroy_service(&did_req_service);
+  // destroy_service(&did_doc_fetch_service);
 
   didQueryPool.shutdown();
   didDocFetchPool.shutdown();
-  sgx_destroy_enclave(enclave_id);
+  // destroy_services();
+  // sgx_destroy_enclave(enclave_id);
 
   return 0;
 }

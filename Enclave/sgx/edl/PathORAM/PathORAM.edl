@@ -1,0 +1,13 @@
+enclave {
+    trusted {
+        public uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size, uint32_t stash_size, uint32_t recursion_data_size, int8_t recursion_levels, uint8_t Z);
+	};
+    
+    untrusted {
+        uint8_t ocall_uploadBucket([in,size = bucket_size] unsigned char* serialized_bucket, uint32_t bucket_size , uint32_t label, [in,size = hash_size] unsigned char* hash, uint32_t hash_size , uint32_t size_for_level, uint8_t recursion_level);
+        uint8_t ocall_downloadBucket([out,size = bucket_size] unsigned char* serialized_bucket, uint32_t bucket_size , uint32_t label, [out,size = hash_size] unsigned char* hash, uint32_t hash_size, uint32_t size_for_level, uint8_t level);
+        uint8_t ocall_downloadPath([out,size = path_size] unsigned char* serialized_path, uint32_t path_size , uint32_t label,[out,size = path_hash_size] unsigned char *path_hash, uint32_t path_hash_size, uint8_t level, uint32_t D_lev);
+        uint8_t ocall_uploadPath([in,size = path_size] unsigned char* serialized_path, uint32_t path_size , uint32_t label, [in,size = path_hash_size] unsigned char *path_hash, uint32_t path_hash_size, uint8_t level, uint32_t D_level);
+        void ocall_buildFetchChildHash(uint32_t left, uint32_t right, [out, size=hash_size] unsigned char* lchild, [out, size=hash_size] unsigned char* rchild, uint32_t hash_size, uint32_t recursion_level);
+    };
+};

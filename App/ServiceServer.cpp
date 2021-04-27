@@ -254,9 +254,9 @@ static long init_ssl_client_ctx(void) {
     return -1;
   }
 
-  // const char *cipherList = "ECDHE-RSA-AES128-GCM-SHA256";
-  // sgxStatus =
-  //     enc_wolfSSL_CTX_set_cipher_list(enclave_id, &ret, ctx, cipherList);
+  const char *cipherList = "ECDHE-RSA-AES128-GCM-SHA256";
+  sgxStatus =
+      enc_wolfSSL_CTX_set_cipher_list(enclave_id, &ret, ctx, cipherList);
   return ctx;
 }
 

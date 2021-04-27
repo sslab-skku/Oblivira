@@ -254,7 +254,7 @@ char *domain2ip_cache[8][2] = {
     {"sslab.skku.edu", "115.145.154.77"},
     {"ion", "111.111.111.111"},
 };
-char *domain2ip(char *domain) { return "115.145.154.77"; }
+char *domain2ip(char *domain) { return "104.109.241.178"; }
 void *did_doc_fetch_handler(void *arg) {
   int ret, n, sgxStatus;
   char input[DRF_MAX_LEN];
@@ -358,7 +358,7 @@ int main(int argc, char *argv[]) {
   /* Changing dir to where the executable is.*/
   // char absolutePath[MAX_PATH];
   // struct epoll_event epevent;
-  
+
   signal(SIGINT, destroy_oblivira);
 
   /* Initialize the enclave */
@@ -375,9 +375,18 @@ int main(int argc, char *argv[]) {
 
   ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
                      did_req_handler);
+  if (ret < 0) {
+    printf("Error Initializing service\n");
+    exit(1);
+  }
 
   ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
                      TLS_ENABLED, did_doc_fetch_handler);
+
+  if (ret < 0) {
+    printf("Error Initializing service\n");
+    exit(1);
+  }
 
   struct thread_data thread_data;
 

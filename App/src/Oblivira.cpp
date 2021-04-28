@@ -57,6 +57,10 @@ void *did_req_handler(void *arg)
         return NULL;
     }
 
+#if defined(OBLIVIRA_PRINT_LOG)
+    std::cout << "[UNTRUSTED][did_req_handler] eph_did -> " << eph_did << std::endl;
+#endif
+
     CURL *curl;
     CURLcode ret;
     std::string url = UNIRESOLVER_URL;
@@ -67,9 +71,9 @@ void *did_req_handler(void *arg)
 #if defined(OBLIVIRA_PRINT_LOG)
     std::cout << "[UNTRUSTED][did_req_handler][curl] get request!" << std::endl;
 #endif
+
     // set curl config
-    url.insert(0, UNIRESOLVER_URL);
-    url.insert(url.length(), eph_did);
+    url += eph_did;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     // send curl to universal resolver

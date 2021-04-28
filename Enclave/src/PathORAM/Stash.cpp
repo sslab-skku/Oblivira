@@ -27,9 +27,7 @@ void Stash::insertNewBlock()
 
     if (current_size == stash_size)
     {
-#if defined(OBLIVIRA_PRINT_LOG)
-        printf(" [STASH] Stash overflow!\n");
-#endif
+        return;
     }
     else
     {

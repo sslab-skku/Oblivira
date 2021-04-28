@@ -33,14 +33,14 @@ enclave {
         public long enc_wolfSSL_new(long ctxId);
         public int enc_wolfSSL_set_fd(long sslId, int fd);
         public int enc_wolfSSL_connect(long sslId);
-        // public int enc_wolfSSL_write(long sslId,
-        //                              [ in, size = sz ] const void *in,
-        //                              int sz);
+        public int enc_wolfSSL_write(long sslId,
+                                     [ in, size = sz ] const void *in,
+                                     int sz);
         // public int enc_wolfSSL_get_error(long sslId,
         //                                  int ret);
-        // public int enc_wolfSSL_read(long sslId,
-        //                             [ out, size = sz ] void *out,
-        //                             int sz);
+        public int enc_wolfSSL_read(long sslId,
+                                    [ out, size = sz ] void *out,
+                                    int sz);
         public void enc_wolfSSL_free(long sslId);
         public void enc_wolfSSL_CTX_free(long ctxId);
         public int enc_wolfSSL_Cleanup(void);

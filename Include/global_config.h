@@ -25,7 +25,7 @@
 #define SIZE_Z                      4 // Z is the number of blocks in a bucket of the ORAMTree, typically PathORAM uses Z=4
 
 //#define OBLIVIRA_CACHE_ENABLED
-//#define OBLIVIRA_PRINT_LOG
+#define OBLIVIRA_PRINT_LOG
 
 // Inline functions
 inline bool isBlockDummy(unsigned char *serialized_block, uint64_t gN){

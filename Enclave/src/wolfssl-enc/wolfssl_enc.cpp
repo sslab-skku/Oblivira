@@ -179,13 +179,13 @@ int enc_wolfSSL_connect(long sslId) {
   return wolfSSL_connect(ssl);
 }
 
-// int enc_wolfSSL_write(long sslId, const void *in, int sz) {
-//   WOLFSSL *ssl = GetSSL(sslId);
-//   if (ssl == NULL) {
-//     return -1;
-//   }
-//   return wolfSSL_write(ssl, in, sz);
-// }
+int enc_wolfSSL_write(long sslId, const void *in, int sz) {
+  WOLFSSL *ssl = GetSSL(sslId);
+  if (ssl == NULL) {
+    return -1;
+  }
+  return wolfSSL_write(ssl, in, sz);
+}
 
 int enc_wolfSSL_get_error(long sslId, int ret)
 {
@@ -197,13 +197,13 @@ int enc_wolfSSL_get_error(long sslId, int ret)
   return wolfSSL_get_error(ssl, ret);
 }
 
-// int enc_wolfSSL_read(long sslId, void *data, int sz) {
-//   WOLFSSL *ssl = GetSSL(sslId);
-//   if (ssl == NULL) {
-//     return -1;
-//   }
-//   return wolfSSL_read(ssl, data, sz);
-// }
+int enc_wolfSSL_read(long sslId, void *data, int sz) {
+  WOLFSSL *ssl = GetSSL(sslId);
+  if (ssl == NULL) {
+    return -1;
+  }
+  return wolfSSL_read(ssl, data, sz);
+}
 
 void enc_wolfSSL_free(long sslId) { RemoveSSL(sslId); }
 
@@ -279,6 +279,8 @@ long ecall_init_ctx_client(void)
     printf("[ENCLAVE][init_ctx_client] wolfSSL_CTX_set_cipher_list failure\n");
     return -1;
   }
+
+  wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
 
   ret = wolfSSL_CTX_use_certificate_chain_buffer_format(ctx, client_cert_der_2048,
                                                         sizeof_client_cert_der_2048, SSL_FILETYPE_ASN1);

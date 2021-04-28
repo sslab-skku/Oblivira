@@ -23,6 +23,9 @@
 #include "config.hh"
 #include "global_config.h"
 
+/* curl */
+#include <wolfssl/ssl.h>
+
 /* define */
 #define UNIRESOLVER_URL "http://localhost:8080/1.0/identifiers/"
 
@@ -97,8 +100,10 @@ void *did_req_handler(void *arg)
     return NULL;
 }
 
-const char *extract_blockchain_url(const char *input) { return "sslab.skku.edu"; }
-const char *domain2ip(const char *domain) { return "104.109.241.178"; }
+const char *extract_blockchain_url(const char *input) { return "beta.discover.did.microsoft.com"; }
+const char *domain2ip(const char *domain) { return "52.153.152.19"; }
+#define TESTREQUEST "GET /1.0/identifiers/did:ion:EiD3DIbDgBCajj2zCkE48x74FKTV9_Dcu1u_imzZddDKfg HTTP/1.1\r\nHost: beta.discover.did.microsoft.com\r\n\r\n"
+#define RESPONSE "HTTP/1.1 200 OK\r\n\r\nOK\r\n"
 
 void *did_doc_fetch_handler(void *arg)
 {
@@ -111,12 +116,21 @@ void *did_doc_fetch_handler(void *arg)
     const char *ip;
     struct sockaddr_in servAddr;
 
+    char buf[DATA_SIZE] = {0};
+
     // 1. receive DRF
     n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
     if (n < 0)
     {
         goto close_out;
     }
+
+    n = send(thread_data->conn_fd, RESPONSE, sizeof(RESPONSE), 0);
+    if (n < 0)
+    {
+        goto close_out;
+    }
+
     // 2. Parse DRF to extract blockchain URL
 
     // 3. Fetch document
@@ -155,8 +169,7 @@ void *did_doc_fetch_handler(void *arg)
         goto close_out;
     }
 
-    sgxStatus =
-        enc_wolfSSL_new(enclave_id, &ssl, thread_data->service->client_ctx);
+    sgxStatus = enc_wolfSSL_new(enclave_id, &ssl, thread_data->service->client_ctx);
     if (sgxStatus != SGX_SUCCESS || ssl < 0)
     {
         printf("wolfSSL_new error.\n");
@@ -164,7 +177,7 @@ void *did_doc_fetch_handler(void *arg)
     }
 
     printf("client_ctx: %ld\n", thread_data->service->client_ctx);
-    printf("ssl: %ld\n", thread_data->service->client_ctx);
+    printf("ssl: %ld\n", ssl);
 
     sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, bc_server_fd);
     if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
@@ -180,6 +193,25 @@ void *did_doc_fetch_handler(void *arg)
         goto free_close_out;
     }
     printf("Connection successful\n");
+
+    sgxStatus = enc_wolfSSL_write(enclave_id, &ret, ssl, TESTREQUEST, strlen(TESTREQUEST));
+
+    if (sgxStatus != SGX_SUCCESS || ret != strlen(TESTREQUEST))
+    {
+        /* the message is not able to send, or error trying */
+        printf("Write error: Error: %i\n", ret);
+        goto free_close_out;
+    }
+
+    sgxStatus = enc_wolfSSL_read(enclave_id, &ret, ssl, buf, DATA_SIZE);
+
+    if (sgxStatus != SGX_SUCCESS || ret < 0)
+    {
+        /* the server failed to send data, or error trying */
+        printf("Read error. Error: %i\n", ret);
+        goto free_close_out;
+    }
+    printf("Recieved: \t%s\n", buf);
 
 free_close_out:
     sgxStatus = enc_wolfSSL_free(enclave_id, ssl);

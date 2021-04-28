@@ -6,6 +6,8 @@ enclave {
 
     trusted {
         public void ecall_handle_did_req(long sslID, [out, size=sz] char* eph_did, size_t sz);
+        public void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
+                                                [in] const char *addr, [in] const char *eph_did, [in] const char *query);
     };
 
     untrusted {

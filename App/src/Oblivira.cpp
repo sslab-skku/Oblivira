@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <csignal>
+#include <map>
 
 /* sgx */
 #include "sgx/sgx_init.hh"
@@ -18,6 +19,9 @@
 
 /* curl */
 #include <curl/curl.h>
+
+/* json */
+#include "json/json.h"
 
 /* untrusted config */
 #include "config.hh"
@@ -42,6 +46,9 @@ ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 
 LocalStorage *ls = new LocalStorage();
+
+std::map<std::string, long> edid_fd;
+
 
 void *did_req_handler(void *arg)
 {
@@ -78,7 +85,7 @@ void *did_req_handler(void *arg)
     // set curl config
     url += eph_did;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
+    
     // send curl to universal resolver
     ret = curl_easy_perform(curl);
     if (ret != CURLE_OK)
@@ -92,24 +99,24 @@ void *did_req_handler(void *arg)
     }
 #endif
 
-    // clean curl config
-    url.clear();
     // free curl
     curl_easy_cleanup(curl);
+
+    edid_fd[eph_did] = thread_data->ssl;
 
     return NULL;
 }
 
 const char *extract_blockchain_url(const char *input) { return "beta.discover.did.microsoft.com"; }
 const char *domain2ip(const char *domain) { return "52.153.152.19"; }
-#define TESTREQUEST "GET /1.0/identifiers/did:ion:EiD3DIbDgBCajj2zCkE48x74FKTV9_Dcu1u_imzZddDKfg HTTP/1.1\r\nHost: beta.discover.did.microsoft.com\r\n\r\n"
-#define RESPONSE "HTTP/1.1 200 OK\r\n\r\nOK\r\n"
+#define RESPONSE "HTTP/1.1 200 OK\r\n\r\n"
 
 void *did_doc_fetch_handler(void *arg)
 {
     int ret, n, sgxStatus;
     char input[DRF_MAX_LEN];
     struct thread_data *thread_data = (struct thread_data *)arg;
+
     // For connecting to blockchain
     int bc_server_fd;
     long ssl;
@@ -122,16 +129,27 @@ void *did_doc_fetch_handler(void *arg)
     n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
     if (n < 0)
     {
-        goto close_out;
+        return NULL;
     }
 
     n = send(thread_data->conn_fd, RESPONSE, sizeof(RESPONSE), 0);
     if (n < 0)
     {
-        goto close_out;
+        return NULL;
     }
 
     // 2. Parse DRF to extract blockchain URL
+#if defined(OBLIVIRA_PRINT_LOG)
+    std::cout << input << std::endl;
+#endif
+    Json::CharReaderBuilder builder;
+    const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    Json::Value query_info;
+
+    // parse http request body to get eph did
+    reader->parse(input, input + strlen(input), &query_info, NULL);
+
+    query_info["baseAddress"].asString().c_str();
 
     // 3. Fetch document
     bc_server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -139,7 +157,7 @@ void *did_doc_fetch_handler(void *arg)
     if (bc_server_fd < 0)
     {
         printf("Failed to create socket. errno: %i\n", errno);
-        goto close_out;
+        return NULL;
     }
 
     memset(&servAddr, 0, sizeof(servAddr)); /* clears memory block for use */
@@ -147,10 +165,16 @@ void *did_doc_fetch_handler(void *arg)
     servAddr.sin_port = htons(443);         /* sets port to defined port */
 
     // FIXME
-    ip = domain2ip(extract_blockchain_url("sslab.skku.edu"));
+    ip = domain2ip(extract_blockchain_url(""));
     if (ip == NULL)
-        goto close_out;
+    {
+
+        close(bc_server_fd);
+        return NULL;
+    }
+#if defined(OBLIVIRA_PRINT_LOG)
     printf("Connecting to %s:%d\n", ip, ntohs(servAddr.sin_port));
+#endif
 
     /* looks for the server at the entered address (ip in the command line) */
     if (inet_pton(AF_INET, ip, &servAddr.sin_addr) < 1)
@@ -158,65 +182,32 @@ void *did_doc_fetch_handler(void *arg)
         /* checks validity of address */
         ret = errno;
         printf("Invalid Address. errno: %i\n", ret);
-        goto close_out;
+
+        close(bc_server_fd);
+        return NULL;
     }
 
-    if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) <
-        0)
+    if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) < 0)
     {
         ret = errno;
         printf("Connect error. Error: %i\n", ret);
-        goto close_out;
+
+        close(bc_server_fd);
+        return NULL;
     }
 
-    sgxStatus = enc_wolfSSL_new(enclave_id, &ssl, thread_data->service->client_ctx);
-    if (sgxStatus != SGX_SUCCESS || ssl < 0)
+    sgxStatus = ecall_request_to_blockchain(enclave_id, thread_data->service->client_ctx, bc_server_fd,
+                                            edid_fd[query_info["identifier"].asString()],
+                                            query_info["baseAddress"].asString().c_str(),
+                                            query_info["identifier"].asString().c_str(),
+                                            query_info["query"].asString().c_str());
+    if (sgxStatus != SGX_SUCCESS)
     {
-        printf("wolfSSL_new error.\n");
-        goto close_out;
+        std::cout << "[Untrusted][ecall_request_blockchain] Failed to request blockchain!" << std::endl;
+
+        close(bc_server_fd);
+        return NULL;
     }
-
-    printf("client_ctx: %ld\n", thread_data->service->client_ctx);
-    printf("ssl: %ld\n", ssl);
-
-    sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, bc_server_fd);
-    if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
-    {
-        printf("wolfSSL_set_fd failure\n");
-        goto free_close_out;
-    }
-
-    sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, ssl);
-    if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
-    {
-        printf("Error in enc_wolfSSL_connect: %d\n", ret);
-        goto free_close_out;
-    }
-    printf("Connection successful\n");
-
-    sgxStatus = enc_wolfSSL_write(enclave_id, &ret, ssl, TESTREQUEST, strlen(TESTREQUEST));
-
-    if (sgxStatus != SGX_SUCCESS || ret != strlen(TESTREQUEST))
-    {
-        /* the message is not able to send, or error trying */
-        printf("Write error: Error: %i\n", ret);
-        goto free_close_out;
-    }
-
-    sgxStatus = enc_wolfSSL_read(enclave_id, &ret, ssl, buf, DATA_SIZE);
-
-    if (sgxStatus != SGX_SUCCESS || ret < 0)
-    {
-        /* the server failed to send data, or error trying */
-        printf("Read error. Error: %i\n", ret);
-        goto free_close_out;
-    }
-    printf("Recieved: \t%s\n", buf);
-
-free_close_out:
-    sgxStatus = enc_wolfSSL_free(enclave_id, ssl);
-close_out:
-    close(bc_server_fd);
 
     return NULL;
 }
@@ -249,8 +240,10 @@ int main(int argc, char *argv[])
     /* Initialize the enclave */
     if (initialize_enclave(&enclave_id) < 0)
         return 1;
-#
+
+#if defined(OBLIVIRA_PRINT_LOG)
     enc_wolfSSL_Debugging_ON(enclave_id);
+#endif
     // Initialize WolfSSL
     init_service_server();
 

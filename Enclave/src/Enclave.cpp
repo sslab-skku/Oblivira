@@ -1,11 +1,14 @@
 #include <string>
 #include <cstring>
+#include <map>
 
 #include "utils/utils.hh"
 #include "wolfssl-enc/wolfssl_utils.hh"
 #include "wolfssl-enc/testenclave.hh"
 
 #include "Enclave_t.h"
+
+std::map<std::string, std::string> dids;
 
 uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size, uint32_t stash_size, uint32_t recursion_data_size, int8_t recursion_levels, uint8_t Z)
 {
@@ -17,6 +20,7 @@ uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size, uint32_t st
 
 int respond_did(WOLFSSL *ssl, std::string buf)
 {
+    buf = HTTP_RESPONSE + buf;
     return wolfSSL_write(ssl, buf.c_str(), buf.length());
 }
 
@@ -61,7 +65,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
 
     if (cached == 1)
     {
-        if (respond_did(ssl, buf) != SSL_SUCCESS)
+        if (respond_did(ssl, buf) < 0)
         {
             printf("[ENCLAVE][handle_did_req] Write to requester failed!\n");
         }
@@ -73,15 +77,21 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
     std::strncpy(eph_did, did.substr(0, len + 1).c_str(), len + 1);
     std::strncat(eph_did, gen_eph_did(did.length() - len).c_str(), did.length() - len);
 
+    std::string tmp = eph_did;
+    dids[tmp] = did;
+
 #if defined(OBLIVIRA_PRINT_LOG)
-    printf("%s -> %s\n", did.c_str(), eph_did);
+    printf("%s -> %s\n", dids[tmp], eph_did);
 #endif
 }
 
-void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID, char *eph_did, size_t sz)
+void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
+                                 const char *addr, const char *eph_did, const char *query)
 {
-    std::string did;
-    std::string base_addr = "/1.0/identifiers/did:ion:EiD3DIbDgBCajj2zCkE48x74FKTV9_Dcu1u_imzZddDKfg", doc = "";
+    int ret;
+    std::string did = "did:ion:EiD3DIbDgBCajj2zCkE48x74FKTV9_Dcu1u_imzZddDKfg";
+    std::string base_addr = "beta.discover.did.microsoft.com", doc = "", url = "/1.0/identifiers/";
+    std::string tmp = eph_did;
     char buf[DATA_SIZE];
     WOLFSSL_CTX *ctx;
     WOLFSSL *ssl;
@@ -91,18 +101,21 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID, char *ep
     if (ctx == NULL)
     {
         printf("[ENCLAVE][request_to_blockchain] GetCTX failure\n");
+        RemoveSSL(sslID);
         return;
     }
     ssl = wolfSSL_new(ctx);
     if (ssl == NULL)
     {
         printf("[ENCLAVE][request_to_blockchain] Create ssl failure\n");
+        RemoveSSL(sslID);
         return;
     }
 
     if (wolfSSL_set_fd(ssl, client_fd) != SSL_SUCCESS)
     {
         printf("[ENCLAVE][request_to_blockchain] wolfSSL_set_fd failure\n");
+        RemoveSSL(sslID);
         wolfSSL_free(ssl);
         return;
     }
@@ -110,44 +123,82 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID, char *ep
     if (wolfSSL_connect(ssl) != SSL_SUCCESS)
     {
         printf("[ENCLAVE][request_to_blockchain] wolfSSL_connect failure\n");
+        RemoveSSL(sslID);
         wolfSSL_free(ssl);
         return;
     }
 
-    /* find real did */
+    /* generate did rquest */
+    // did = dids[tmp];
 
-    snprintf(buf, sizeof buf, GET_REQUEST, did.c_str());
+    if (strlen(addr) != 0)
+    {
+        base_addr = addr;
+        size_t pos = base_addr.find("/");
+        size_t start_pos = pos + 2;
+
+        pos = base_addr.find("/", pos + 2);
+        url = base_addr.substr(pos);
+        base_addr = base_addr.substr(start_pos, pos - start_pos);
+    }
+
+    if (strlen(query) != 0)
+    {
+        doc = query;
+    }
+
+    snprintf(buf, sizeof buf, GET_REQUEST, url.c_str(), did.c_str());
     strncat(buf, "Host: ", strlen("Host: ") + 1);
     strncat(buf, base_addr.c_str(), base_addr.length() + 1);
     strncat(buf, GET_REQUEST_END, strlen(GET_REQUEST_END) + 1);
     strncat(buf, GET_REQUEST_END, strlen(GET_REQUEST_END) + 1);
     strncat(buf, doc.c_str(), doc.length() + 1);
 
+#if defined(OBLIVIRA_PRINT_LOG)
+    printf("%s", buf);
+#endif
+
     /* request to blockchain */
-    if (wolfSSL_write(ssl, buf, strlen(buf)) != SSL_SUCCESS)
+    if (wolfSSL_write(ssl, buf, strlen(buf)) < 0)
     {
         printf("[ENCLAVE][request_to_blockchain] wolfSSL_write failure\n");
-        wolfSSL_free(ssl);
-    }
-
-    if (wolfSSL_read(ssl, buf, DATA_SIZE) < 0)
-    {
-        printf("[ENCLAVE][request_to_blockchain] wolfSSL_read failure\n");
+        RemoveSSL(sslID);
         wolfSSL_free(ssl);
         return;
     }
+
+    buf[0] = 0;
+
+    if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0)
+    {
+        printf("[ENCLAVE][request_to_blockchain] wolfSSL_read failure\n");
+        RemoveSSL(sslID);
+        wolfSSL_free(ssl);
+        return;
+    }
+
+    buf[ret] = '\0';
+
+#if defined(OBLIVIRA_PRINT_LOG)
+    printf("%s", buf);
+#endif
 
     wolfSSL_free(ssl);
 
     /* write to requester */
     ssl = GetSSL(sslID);
-    respond_did(ssl, std::strchr((const char *)buf, '{'));
+    if (respond_did(ssl, std::strchr((const char *)buf, '{')) < 0)
+    {
+        printf("[ENCLAVE][request_to_blockchain] respond to did failure!\n");
+    }
+
+    RemoveSSL(sslID);
 
     /* write to cache */
 #if defined(OBLIVIRA_CACHE_ENABLED)
     do
     {
-        cached = cache_access(dids[std::string(info->eph_did)].c_str(), did_doc, 'w');
+        cached = cache_access(dids[tmp], std::strchr((const char *)buf, '{'), 'w');
     } while (cached == -1);
 #endif
 }

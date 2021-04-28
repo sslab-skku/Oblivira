@@ -90,22 +90,23 @@ static int __create_tls_channel(struct service *service,
         printf("wolfSSL_new failure\n");
         return EXIT_FAILURE;
     }
+#if defined(OBLIVIRA_PRINT_LOG)
     printf("[TLS] context creation successful\n");
+#endif
     sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, thread_data->ssl, conn_fd);
     if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
     {
         printf("wolfSSL_set_fd failure\n");
         return EXIT_FAILURE;
     }
+#if defined(OBLIVIRA_PRINT_LOG)
     printf("[TLS] setting socket fd successful\n");
-
-    printf("[TLS] Client connected successfully\n");
+#endif
     return EXIT_SUCCESS;
 }
 
 void *worker_thread(struct service *service)
 {
-
     int i;
     int ret;
     struct thread_data thread_data;
@@ -139,7 +140,9 @@ void *worker_thread(struct service *service)
             // Event at server fd, new connection
             if (events[i].data.fd == service->server_fd)
             {
+#if defined(OBLIVIRA_PRINT_LOG)
                 printf("[EventLoop] Accepting client\n");
+#endif
                 // accept
                 thread_data.conn_fd =
                     accept(service->server_fd, (struct sockaddr *)&conn_addr, &addrlen);
@@ -155,12 +158,17 @@ void *worker_thread(struct service *service)
                         __create_tls_channel(service, &thread_data, thread_data.conn_fd);
                     if (ret == EXIT_FAILURE)
                         continue;
+#if defined(OBLIVIRA_PRINT_LOG)
                     printf("[EventLoop][TLS][%lx] Accept Succeeded\n", pthread_self());
+#endif
                 }
-
+#if defined(OBLIVIRA_PRINT_LOG)
                 printf("Handle request here\n");
+#endif
                 service->handler(&thread_data);
+#if defined(OBLIVIRA_PRINT_LOG)
                 printf("Finished Handling request\n");
+#endif
                 close(thread_data.conn_fd);
                 // int flags = fcntl(thread_data.conn_fd, F_GETFL);
                 // flags |= O_NONBLOCK;

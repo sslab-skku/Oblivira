@@ -39,12 +39,13 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
         return;
     }
 
-    if (wolfSSL_read(ssl, buf, DATA_SIZE) < 0)
+    if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0)
     {
         printf("[ENCLAVE][handle_did_req] wolfSSL_read failure\n");
         return;
     }
 
+    buf[ret] = '\0';
 #if defined(OBLIVIRA_PRINT_LOG)
     printf("%s\n", buf);
 #endif
@@ -81,7 +82,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
     dids[tmp] = did;
 
 #if defined(OBLIVIRA_PRINT_LOG)
-    printf("%s -> %s\n", dids[tmp], eph_did);
+    printf("%s -> %s\n", dids[tmp].c_str(), eph_did);
 #endif
 }
 
@@ -129,7 +130,12 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
     }
 
     /* generate did rquest */
-    // did = dids[tmp];
+    did = dids[tmp];
+
+#if defined(OBLIVIRA_PRINT_LOG)
+    printf("Address: %s\n", addr);
+    printf("%s -> %s\n", eph_did, dids[tmp].c_str());
+#endif
 
     if (strlen(addr) != 0)
     {

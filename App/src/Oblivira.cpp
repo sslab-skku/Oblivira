@@ -1,4 +1,5 @@
 /* standard library */
+#include <string.h>
 #include <iostream>
 #include <string>
 #include <csignal>
@@ -142,14 +143,16 @@ void *did_doc_fetch_handler(void *arg)
 #if defined(OBLIVIRA_PRINT_LOG)
     std::cout << input << std::endl;
 #endif
+    std::string data;
+
     Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
     Json::Value query_info;
 
-    // parse http request body to get eph did
-    reader->parse(input, input + strlen(input), &query_info, NULL);
+    data = strstr(input, "{");
 
-    query_info["baseAddress"].asString().c_str();
+    // parse http request body to get eph did
+    reader->parse(data.c_str(), data.c_str() + data.length(), &query_info, NULL);
 
     // 3. Fetch document
     bc_server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -173,7 +176,7 @@ void *did_doc_fetch_handler(void *arg)
         return NULL;
     }
 #if defined(OBLIVIRA_PRINT_LOG)
-    printf("Connecting to %s:%d\n", ip, ntohs(servAddr.sin_port));
+    std::cout << "Connecting to " << ip << ":" << ntohs(servAddr.sin_port) << std::endl;
 #endif
 
     /* looks for the server at the entered address (ip in the command line) */
@@ -195,6 +198,13 @@ void *did_doc_fetch_handler(void *arg)
         close(bc_server_fd);
         return NULL;
     }
+
+#if defined(OBLIVIRA_PRINT_LOG)
+    std::cout << "FD: " << edid_fd[query_info["identifier"].asString()] << std::endl;
+    std::cout << "Addr: " << query_info["baseAddress"].asString().c_str() << std::endl;
+    std::cout << "eph_did: " << query_info["identifier"].asString().c_str() << std::endl;
+    std::cout << "query: " << query_info["query"].asString().c_str() << std::endl;
+#endif
 
     sgxStatus = ecall_request_to_blockchain(enclave_id, thread_data->service->client_ctx, bc_server_fd,
                                             edid_fd[query_info["identifier"].asString()],
@@ -242,7 +252,7 @@ int main(int argc, char *argv[])
         return 1;
 
 #if defined(OBLIVIRA_PRINT_LOG)
-    enc_wolfSSL_Debugging_ON(enclave_id);
+    // enc_wolfSSL_Debugging_ON(enclave_id);
 #endif
     // Initialize WolfSSL
     init_service_server();

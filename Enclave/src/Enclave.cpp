@@ -6,15 +6,19 @@
 #include "wolfssl-enc/wolfssl_utils.hh"
 #include "wolfssl-enc/testenclave.hh"
 
+#include "global_config.h"
 #include "Enclave_t.h"
 
 std::map<std::string, std::string> dids;
 
 uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size, uint32_t stash_size, uint32_t recursion_data_size, int8_t recursion_levels, uint8_t Z)
 {
+
+#ifdef OBLIVIRA_CACHE_ENABLED
     sgx_status_t ocall_status;
 
     initialize_cache(max_blocks, data_size, stash_size, recursion_data_size, recursion_levels, Z);
+#endif
     return 0;
 }
 
@@ -46,9 +50,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
     }
 
     buf[ret] = '\0';
-#if defined(OBLIVIRA_PRINT_LOG)
-    printf("%s\n", buf);
-#endif
+
     did = buf;
     ret = did.find_first_of('/', 0) + 1;
     ret = did.find_first_of('/', ret) + 1;
@@ -89,7 +91,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t sz)
 void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
                                  const char *addr, const char *eph_did, const char *query)
 {
-    int ret;
+    int ret, cached;
     std::string did = "did:ion:EiD3DIbDgBCajj2zCkE48x74FKTV9_Dcu1u_imzZddDKfg";
     std::string base_addr = "beta.discover.did.microsoft.com", doc = "", url = "/1.0/identifiers/";
     std::string tmp = eph_did;
@@ -160,10 +162,6 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
     strncat(buf, GET_REQUEST_END, strlen(GET_REQUEST_END) + 1);
     strncat(buf, doc.c_str(), doc.length() + 1);
 
-#if defined(OBLIVIRA_PRINT_LOG)
-    printf("%s", buf);
-#endif
-
     /* request to blockchain */
     if (wolfSSL_write(ssl, buf, strlen(buf)) < 0)
     {
@@ -185,10 +183,6 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
 
     buf[ret] = '\0';
 
-#if defined(OBLIVIRA_PRINT_LOG)
-    printf("%s", buf);
-#endif
-
     wolfSSL_free(ssl);
 
     /* write to requester */
@@ -204,7 +198,7 @@ void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
 #if defined(OBLIVIRA_CACHE_ENABLED)
     do
     {
-        cached = cache_access(dids[tmp], std::strchr((const char *)buf, '{'), 'w');
+        cached = cache_access(dids[tmp].c_str(), std::strchr((const char *)buf, '{'), 'w');
     } while (cached == -1);
 #endif
 }

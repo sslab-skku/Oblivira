@@ -1,10 +1,13 @@
 #include "utils/utils.hh"
 
+
+#ifdef OBLIVIRA_CACHE_ENABLED
 PathORAM *pathoram;
 DIDMap *DIDmap;
 
 bool lock = false;
 unsigned char dummy_buf[DATA_SIZE] = {'\0'};
+#endif
 
 std::string gen_eph_did(const size_t len)
 {
@@ -24,6 +27,7 @@ std::string gen_eph_did(const size_t len)
     return eph_did;
 }
 
+#ifdef OBLIVIRA_CACHE_ENABLED
 void initialize_cache(uint32_t max_blocks, uint32_t data_size, uint32_t stash_size, uint32_t recursion_data_size, int8_t recursion_levels, uint8_t Z)
 {
     pathoram = new PathORAM();
@@ -69,3 +73,4 @@ int cache_access(const char *did, char *did_doc, char op_type)
 
     return 1;
 }
+#endif

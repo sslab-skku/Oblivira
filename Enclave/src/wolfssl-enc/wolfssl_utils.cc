@@ -67,6 +67,8 @@ void RemoveSSL(long id)
 {
     if (id >= MAX_WOLFSSL || id < 0)
         return;
+    sgx_thread_mutex_lock(&ssl_table_mutex);
     wolfSSL_free(SSL_TABLE[id]);
     SSL_TABLE[id] = NULL;
+    sgx_thread_mutex_unlock(&ssl_table_mutex);
 }

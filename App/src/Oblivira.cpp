@@ -15,11 +15,11 @@
 /* ThreadPool */
 #include "ThreadPool/ThreadPool.h"
 
+#ifdef OBLIVIRA_CACHE_ENABLED
 /* localstorage */
+#include <math.h>
 #include "localstorage/localstorage.hh"
-
-/* curl */
-#include <curl/curl.h>
+#endif
 
 /* json */
 #include "json/json.h"
@@ -46,15 +46,21 @@ ThreadPool didDocFetchPool(NUM_DOC_FETCH_THR);
 // EPOLL fd
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 
+#ifdef OBLIVIRA_CACHE_ENABLED
 LocalStorage *ls = new LocalStorage();
+#endif
 
 std::map<std::string, long> edid_fd;
 
+#define UNIV_REQ "GET /1.0/identifiers/"
+#define UNIV_REQ_END " HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
 void *did_req_handler(void *arg)
 {
+    int ret;
     struct thread_data *thread_data = (struct thread_data *)arg;
     char eph_did[MAX_DID_SIZE] = {0};
+    char tmp[DATA_SIZE];
 
     if (int sgxStatus = ecall_handle_did_req(enclave_id, thread_data->ssl, eph_did, MAX_DID_SIZE))
     {
@@ -72,36 +78,43 @@ void *did_req_handler(void *arg)
     std::cout << "[UNTRUSTED][did_req_handler] eph_did -> " << eph_did << std::endl;
 #endif
 
-    CURL *curl;
-    CURLcode ret;
-    std::string url = UNIRESOLVER_URL;
+    std::string buf;
 
-    // curl init
-    curl = curl_easy_init();
+    buf = UNIV_REQ;
+    buf += eph_did;
+    buf += UNIV_REQ_END;
 
 #if defined(OBLIVIRA_PRINT_LOG)
-    std::cout << "[UNTRUSTED][did_req_handler][curl] get request!" << std::endl;
+    std::cout << "[UNTRUSTED][did_req_handler] request universal resolver:  " << buf << std::endl;
 #endif
+    int universalfd;
 
-    // set curl config
-    url += eph_did;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    
-    // send curl to universal resolver
-    ret = curl_easy_perform(curl);
-    if (ret != CURLE_OK)
+    struct sockaddr_in clientaddr;
+
+    universalfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    clientaddr.sin_family = AF_INET;
+    clientaddr.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &clientaddr.sin_addr);
+
+    if (connect(universalfd, (struct sockaddr *)&clientaddr, sizeof(clientaddr)) < 0)
     {
-        std::cerr << "[UNTRUSTED][did_req_handler][curl] Failed with curl error code: " << ret << ", url: " << url << std::endl;
+        perror("Connect error: ");
     }
+    ret = send(universalfd, buf.c_str(), buf.length() + 1, 0);
+
+    if (ret < 0)
+    {
+        perror("write error: ");
+        return NULL;
+    }
+
+    ret = recv(universalfd, tmp, DATA_SIZE, 0);
+
+    close(universalfd);
 #if defined(OBLIVIRA_PRINT_LOG)
-    else
-    {
-        std::cout << "\n[UNTRUSTED][did_req_handler][curl] curl SUCCESS: " << url << std::endl;
-    }
+    std::cout << "[UNTRUSTED][did_req_handler] request to universal resolver succeded!"<< std::endl;
 #endif
-
-    // free curl
-    curl_easy_cleanup(curl);
 
     edid_fd[eph_did] = thread_data->ssl;
 
@@ -140,9 +153,6 @@ void *did_doc_fetch_handler(void *arg)
     }
 
     // 2. Parse DRF to extract blockchain URL
-#if defined(OBLIVIRA_PRINT_LOG)
-    std::cout << input << std::endl;
-#endif
     std::string data;
 
     Json::CharReaderBuilder builder;
@@ -251,6 +261,14 @@ int main(int argc, char *argv[])
     if (initialize_enclave(&enclave_id) < 0)
         return 1;
 
+#ifdef OBLIVIRA_CACHE_ENABLED
+    int recursion_levels = computeRecursionLevels(MAX_BLOCKS, RECURSION_DATA_SIZE, MEM_POSMAP_LIMIT);
+    uint32_t D = (uint32_t)ceil(log((double)MAX_BLOCKS / SIZE_Z) / log((double)2));
+    ls->setParams(MAX_BLOCKS, D, SIZE_Z, STASH_SIZE, DATA_SIZE + ADDITIONAL_METADATA_SIZE, RECURSION_DATA_SIZE + ADDITIONAL_METADATA_SIZE, recursion_levels);
+
+    ecall_createNewORAM(enclave_id, (uint8_t *)&ret, MAX_BLOCKS, DATA_SIZE, STASH_SIZE, RECURSION_DATA_SIZE, recursion_levels, SIZE_Z);
+#endif
+
 #if defined(OBLIVIRA_PRINT_LOG)
     // enc_wolfSSL_Debugging_ON(enclave_id);
 #endif
@@ -277,9 +295,6 @@ int main(int argc, char *argv[])
         printf("Error Initializing service\n");
         exit(1);
     }
-
-    // initialize curl global
-    curl_global_init(CURL_GLOBAL_ALL);
 
     struct thread_data thread_data;
 

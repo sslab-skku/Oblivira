@@ -2,11 +2,15 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
+#ifdef OBLIVIRA_CACHE_ENABLED
 #include "localstorage/localstorage.hh"
+#endif
 
 #include "Enclave_u.h"
 
+#ifdef OBLIVIRA_CACHE_ENABLED
 extern LocalStorage *ls;
+#endif
 
 /* OCall functions */
 void uprint(const char *str)
@@ -69,30 +73,41 @@ size_t ocall_send(int sockfd, const void *buf, size_t len, int flags)
 
 uint8_t ocall_uploadBucket(unsigned char *serialized_bucket, uint32_t bucket_size, uint32_t label, unsigned char *hash, uint32_t hash_size, uint32_t size_for_level, uint8_t recursion_level)
 {
+
+#ifdef OBLIVIRA_CACHE_ENABLED
   ls->uploadBucket(label, serialized_bucket, size_for_level, hash, hash_size, recursion_level);
+#endif
   return 0;
 }
 
 uint8_t ocall_uploadPath(unsigned char *path_array, uint32_t path_size, uint32_t leaf_label, unsigned char *path_hash, uint32_t path_hash_size, uint8_t level, uint32_t D_level)
 {
+#ifdef OBLIVIRA_CACHE_ENABLED
   ls->uploadPath(leaf_label, path_array, path_hash, level, D_level);
+#endif
   return 0;
 }
 
 uint8_t ocall_downloadBucket(unsigned char *serialized_bucket, uint32_t bucket_size, uint32_t label, unsigned char *hash, uint32_t hash_size, uint32_t size_for_level, uint8_t recursion_level)
 {
+#ifdef OBLIVIRA_CACHE_ENABLED
   ls->downloadBucket(label, serialized_bucket, size_for_level, hash, hash_size, recursion_level);
+#endif
   return 0;
 }
 
 uint8_t ocall_downloadPath(unsigned char *path_array, uint32_t path_size, uint32_t leaf_label, unsigned char *path_hash, uint32_t path_hash_size, uint8_t level, uint32_t D_level)
 {
+#ifdef OBLIVIRA_CACHE_ENABLED
   ls->downloadPath(leaf_label, path_array, path_hash, path_hash_size, level, D_level);
+#endif
   return 0;
 }
 
 void ocall_buildFetchChildHash(uint32_t left, uint32_t right, unsigned char *lchild, unsigned char *rchild, uint32_t hash_size, uint32_t recursion_level)
 {
+#ifdef OBLIVIRA_CACHE_ENABLED
   ls->fetchHash(left, lchild, hash_size, recursion_level);
   ls->fetchHash(right, rchild, hash_size, recursion_level);
+#endif
 }

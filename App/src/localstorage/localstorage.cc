@@ -268,3 +268,23 @@ void LocalStorage::showPath_reverse(unsigned char *decrypted_path, uint8_t Z, ui
         }
     }
 }
+
+uint8_t computeRecursionLevels(uint32_t max_blocks, uint32_t recursion_data_size, uint64_t onchip_posmap_memory_limit) {
+    uint8_t recursion_levels = 1;
+    uint8_t x;
+
+    if(recursion_data_size!=0) {		
+        recursion_levels = 1;
+        x = recursion_data_size / sizeof(uint32_t);
+        uint64_t size_pmap0 = max_blocks * sizeof(uint32_t);
+        uint64_t cur_pmap0_blocks = max_blocks;
+
+        while(size_pmap0 > onchip_posmap_memory_limit) {
+            cur_pmap0_blocks = (uint64_t) ceil((double)cur_pmap0_blocks/(double)x);
+            recursion_levels++;
+            size_pmap0 = cur_pmap0_blocks * sizeof(uint32_t);
+        }
+    }
+
+    return recursion_levels;
+}

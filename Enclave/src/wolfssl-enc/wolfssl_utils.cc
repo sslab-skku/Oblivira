@@ -1,4 +1,5 @@
 #include "wolfssl-enc/wolfssl_utils.hh"
+#include "wolfssl-enc/testenclave.hh"
 
 WOLFSSL_CTX *CTX_TABLE[MAX_WOLFSSL_CTX];
 WOLFSSL *SSL_TABLE[MAX_WOLFSSL];
@@ -50,9 +51,14 @@ WOLFSSL_CTX *GetCTX(long id)
 
 WOLFSSL *GetSSL(long id)
 {
+    WOLFSSL *ssl;
     if (id >= MAX_WOLFSSL || id < 0)
         return NULL;
-    return SSL_TABLE[id];
+
+    sgx_thread_mutex_lock(&ssl_table_mutex);
+    ssl = SSL_TABLE[id];
+    sgx_thread_mutex_unlock(&ssl_table_mutex);
+    return ssl;
 }
 
 void RemoveCTX(long id)

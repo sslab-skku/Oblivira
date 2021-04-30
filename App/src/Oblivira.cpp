@@ -3,7 +3,7 @@
 #include <iostream>
 #include <string>
 #include <csignal>
-#include <map>
+#include <mutex>
 
 /* sgx */
 #include "sgx/sgx_init.hh"
@@ -50,17 +50,78 @@ static int did_req_epoll_fd, drf_recv_epoll_fd;
 LocalStorage *ls = new LocalStorage();
 #endif
 
-std::map<std::string, long> edid_fd;
+#define UNIV_REQ "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
-#define UNIV_REQ "GET /1.0/identifiers/"
-#define UNIV_REQ_END " HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+#define MAX_MAP_SIZE 128
+struct safe_map
+{
+    char eph_did[MAX_DID_SIZE];
+    long ssl;
+    bool is_empty;
+    static std::mutex m;
+};
+
+std::mutex safe_map::m;
+struct safe_map eph_ssl[MAX_MAP_SIZE];
+
+long get_eph_ssl(const char *did)
+{
+    long ssl;
+    eph_ssl->m.lock();
+    for (int i = 0; i < MAX_MAP_SIZE; ++i)
+    {
+        if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1))
+        {
+            ssl = eph_ssl[i].ssl;
+            eph_ssl->m.unlock();
+            return ssl;
+        }
+    }
+
+    eph_ssl->m.unlock();
+    return -1;
+}
+
+int set_eph_ssl(const char* did, long ssl)
+{
+    eph_ssl->m.lock();
+    for (int i = 0; i < MAX_MAP_SIZE; ++i)
+    {
+        if (eph_ssl[i].is_empty)
+        {
+            int min = strlen(did) < sizeof(eph_ssl[i].eph_did) ? strlen(did) + 1 : sizeof(eph_ssl[i].eph_did);
+            strncpy(eph_ssl[i].eph_did, did, min);
+            eph_ssl[i].ssl = ssl;
+            eph_ssl->m.unlock();
+            return 0;
+        }
+    }
+    eph_ssl->m.unlock();
+    return -1;
+}
+
+int rm_eph_ssl(const char *did)
+{
+    eph_ssl->m.lock();
+    for (int i = 0; i < MAX_MAP_SIZE; ++i)
+    {
+        if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1))
+        {
+            eph_ssl[i].is_empty = true;
+            eph_ssl->m.unlock();
+            return 0;
+        }
+    }
+    eph_ssl->m.unlock();
+    return -1;
+}
 
 void *did_req_handler(void *arg)
 {
     int ret;
     struct thread_data *thread_data = (struct thread_data *)arg;
     char eph_did[MAX_DID_SIZE] = {0};
-    char tmp[DATA_SIZE];
+    char buf[DATA_SIZE];
 
     if (int sgxStatus = ecall_handle_did_req(enclave_id, thread_data->ssl, eph_did, MAX_DID_SIZE))
     {
@@ -78,15 +139,19 @@ void *did_req_handler(void *arg)
     std::cout << "[UNTRUSTED][did_req_handler] eph_did -> " << eph_did << std::endl;
 #endif
 
-    std::string buf;
-
-    buf = UNIV_REQ;
-    buf += eph_did;
-    buf += UNIV_REQ_END;
+    snprintf(buf, sizeof buf, UNIV_REQ, eph_did);
 
 #if defined(OBLIVIRA_PRINT_LOG)
-    std::cout << "[UNTRUSTED][did_req_handler] request universal resolver:  " << buf << std::endl;
+    printf("thread_data->ssl = %ld\n", thread_data->ssl);
+    printf("eph_did = %s, length = %ld\n", eph_did, strlen(eph_did));
 #endif
+
+    if (set_eph_ssl(eph_did, thread_data->ssl) < 0)
+    {
+        perror("[UNTRUSTED][did_req_handler][set_eph_ssl]: ");
+        return NULL;
+    }
+
     int universalfd;
 
     struct sockaddr_in clientaddr;
@@ -99,24 +164,23 @@ void *did_req_handler(void *arg)
 
     if (connect(universalfd, (struct sockaddr *)&clientaddr, sizeof(clientaddr)) < 0)
     {
-        perror("Connect error: ");
+        perror("[UNTRUSTED][did_req_handler][connect]: ");
     }
-    ret = send(universalfd, buf.c_str(), buf.length() + 1, 0);
+    ret = send(universalfd, buf, strlen(buf) + 1, 0);
 
     if (ret < 0)
     {
-        perror("write error: ");
+        perror("[UNTRUSTED][did_req_handler][write]: ");
         return NULL;
     }
 
-    ret = recv(universalfd, tmp, DATA_SIZE, 0);
+    ret = recv(universalfd, buf, DATA_SIZE, 0);
 
     close(universalfd);
+
 #if defined(OBLIVIRA_PRINT_LOG)
     std::cout << "[UNTRUSTED][did_req_handler] request to universal resolver succeded!"<< std::endl;
 #endif
-
-    edid_fd[eph_did] = thread_data->ssl;
 
     return NULL;
 }
@@ -133,7 +197,7 @@ void *did_doc_fetch_handler(void *arg)
 
     // For connecting to blockchain
     int bc_server_fd;
-    long ssl;
+    long ssl, serverssl;
     const char *ip;
     struct sockaddr_in servAddr;
 
@@ -181,10 +245,10 @@ void *did_doc_fetch_handler(void *arg)
     ip = domain2ip(extract_blockchain_url(""));
     if (ip == NULL)
     {
-
         close(bc_server_fd);
         return NULL;
     }
+
 #if defined(OBLIVIRA_PRINT_LOG)
     std::cout << "Connecting to " << ip << ":" << ntohs(servAddr.sin_port) << std::endl;
 #endif
@@ -193,8 +257,7 @@ void *did_doc_fetch_handler(void *arg)
     if (inet_pton(AF_INET, ip, &servAddr.sin_addr) < 1)
     {
         /* checks validity of address */
-        ret = errno;
-        printf("Invalid Address. errno: %i\n", ret);
+        perror("[UNTRUSTED][did_doc_fetch_handler][inet_pton]: ");
 
         close(bc_server_fd);
         return NULL;
@@ -203,21 +266,35 @@ void *did_doc_fetch_handler(void *arg)
     if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) < 0)
     {
         ret = errno;
-        printf("Connect error. Error: %i\n", ret);
+        perror("[UNTRUSTED][did_doc_fetch_handler][connect]: ");
 
         close(bc_server_fd);
         return NULL;
     }
 
+    if ((serverssl = get_eph_ssl(query_info["identifier"].asString().c_str())) < 0)
+    {
+        perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
+        close(bc_server_fd);
+        return NULL;
+    }
+
+    if (rm_eph_ssl(query_info["identifier"].asString().c_str()) < 0)
+    {
+        perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
+        close(bc_server_fd);
+        return NULL;
+    }
+
 #if defined(OBLIVIRA_PRINT_LOG)
-    std::cout << "FD: " << edid_fd[query_info["identifier"].asString()] << std::endl;
+    std::cout << "FD: " << serverssl << std::endl;
     std::cout << "Addr: " << query_info["baseAddress"].asString().c_str() << std::endl;
-    std::cout << "eph_did: " << query_info["identifier"].asString().c_str() << std::endl;
+    std::cout << "eph_did: " << query_info["identifier"].asString().c_str() << ", length: " << query_info["identifier"].asString().length() << std::endl;
     std::cout << "query: " << query_info["query"].asString().c_str() << std::endl;
 #endif
 
     sgxStatus = ecall_request_to_blockchain(enclave_id, thread_data->service->client_ctx, bc_server_fd,
-                                            edid_fd[query_info["identifier"].asString()],
+                                            ssl,
                                             query_info["baseAddress"].asString().c_str(),
                                             query_info["identifier"].asString().c_str(),
                                             query_info["query"].asString().c_str());
@@ -268,6 +345,10 @@ int main(int argc, char *argv[])
 
     ecall_createNewORAM(enclave_id, (uint8_t *)&ret, MAX_BLOCKS, DATA_SIZE, STASH_SIZE, RECURSION_DATA_SIZE, recursion_levels, SIZE_Z);
 #endif
+
+    for(i = 0; i < MAX_MAP_SIZE; ++i){
+        eph_ssl[i].is_empty = true;
+    }
 
 #if defined(OBLIVIRA_PRINT_LOG)
     // enc_wolfSSL_Debugging_ON(enclave_id);

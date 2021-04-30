@@ -12,7 +12,7 @@
 
 /* Max number of WOLFSSL's */
 #ifndef MAX_WOLFSSL
-#define MAX_WOLFSSL 128
+#define MAX_WOLFSSL 1024
 #endif
 
 /* returns ID assigned on success and -1 on failure

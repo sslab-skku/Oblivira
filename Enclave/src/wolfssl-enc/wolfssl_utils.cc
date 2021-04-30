@@ -51,14 +51,9 @@ WOLFSSL_CTX *GetCTX(long id)
 
 WOLFSSL *GetSSL(long id)
 {
-    WOLFSSL *ssl;
     if (id >= MAX_WOLFSSL || id < 0)
         return NULL;
-
-    sgx_thread_mutex_lock(&ssl_table_mutex);
-    ssl = SSL_TABLE[id];
-    sgx_thread_mutex_unlock(&ssl_table_mutex);
-    return ssl;
+    return SSL_TABLE[id];
 }
 
 void RemoveCTX(long id)

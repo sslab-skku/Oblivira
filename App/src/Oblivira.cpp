@@ -67,52 +67,51 @@ struct safe_map eph_ssl[MAX_MAP_SIZE];
 long get_eph_ssl(const char *did)
 {
     long ssl;
-    eph_ssl->m.lock();
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
-        if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1))
+        if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1) && !eph_ssl[i].is_empty)
         {
             ssl = eph_ssl[i].ssl;
-            eph_ssl->m.unlock();
             return ssl;
         }
     }
-
-    eph_ssl->m.unlock();
+    errno = EINVAL;
     return -1;
 }
 
 int set_eph_ssl(const char* did, long ssl)
 {
-    eph_ssl->m.lock();
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
         if (eph_ssl[i].is_empty)
         {
             int min = strlen(did) < sizeof(eph_ssl[i].eph_did) ? strlen(did) + 1 : sizeof(eph_ssl[i].eph_did);
+            eph_ssl->m.lock();
             strncpy(eph_ssl[i].eph_did, did, min);
             eph_ssl[i].ssl = ssl;
+            eph_ssl[i].is_empty = false;
             eph_ssl->m.unlock();
             return 0;
         }
     }
-    eph_ssl->m.unlock();
+    errno = EBUSY;
     return -1;
 }
 
 int rm_eph_ssl(const char *did)
 {
-    eph_ssl->m.lock();
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
         if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1))
         {
+
+            eph_ssl->m.lock();
             eph_ssl[i].is_empty = true;
             eph_ssl->m.unlock();
             return 0;
         }
     }
-    eph_ssl->m.unlock();
+    errno = EINVAL;
     return -1;
 }
 
@@ -202,6 +201,7 @@ void *did_doc_fetch_handler(void *arg)
     struct sockaddr_in servAddr;
 
     char buf[DATA_SIZE] = {0};
+    char eph_did[MAX_DID_SIZE];
 
     // 1. receive DRF
     n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
@@ -272,14 +272,16 @@ void *did_doc_fetch_handler(void *arg)
         return NULL;
     }
 
-    if ((serverssl = get_eph_ssl(query_info["identifier"].asString().c_str())) < 0)
+    strncpy(eph_did, query_info["identifier"].asString().c_str(), MAX_DID_SIZE);
+
+    if ((serverssl = get_eph_ssl(eph_did)) < 0)
     {
         perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
         close(bc_server_fd);
         return NULL;
     }
 
-    if (rm_eph_ssl(query_info["identifier"].asString().c_str()) < 0)
+    if (rm_eph_ssl(eph_did) < 0)
     {
         perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
         close(bc_server_fd);
@@ -289,14 +291,14 @@ void *did_doc_fetch_handler(void *arg)
 #if defined(OBLIVIRA_PRINT_LOG)
     std::cout << "FD: " << serverssl << std::endl;
     std::cout << "Addr: " << query_info["baseAddress"].asString().c_str() << std::endl;
-    std::cout << "eph_did: " << query_info["identifier"].asString().c_str() << ", length: " << query_info["identifier"].asString().length() << std::endl;
+    std::cout << "eph_did: " << eph_did << ", length: " << query_info["identifier"].asString().length() << std::endl;
     std::cout << "query: " << query_info["query"].asString().c_str() << std::endl;
 #endif
 
     sgxStatus = ecall_request_to_blockchain(enclave_id, thread_data->service->client_ctx, bc_server_fd,
-                                            ssl,
+                                            serverssl,
                                             query_info["baseAddress"].asString().c_str(),
-                                            query_info["identifier"].asString().c_str(),
+                                            eph_did,
                                             query_info["query"].asString().c_str());
     if (sgxStatus != SGX_SUCCESS)
     {

@@ -76,50 +76,43 @@ int cache_access(const char *did, char *did_doc, char op_type)
 
 int get_dids(const char *eph_did, char *ret)
 {
-    sgx_thread_mutex_lock(&map_did->m);
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
-        if (!strncmp(map_did[i].eph_did, eph_did, strlen(map_did[i].eph_did) + 1))
+        if (!strncmp(map_did[i].eph_did, eph_did, strlen(map_did[i].eph_did) + 1) && map_did[i].is_used)
         {
             strncpy(ret, map_did[i].did, MAX_DID_SIZE);
-            sgx_thread_mutex_unlock(&map_did->m);
             return 0;
         }
     }
-
-    sgx_thread_mutex_unlock(&map_did->m);
     return -1;
 }
 
 int set_dids(const char *eph_did, const char *did)
 {
-    sgx_thread_mutex_lock(&map_did->m);
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
         if (!map_did[i].is_used)
         {
             strncpy(map_did[i].eph_did, eph_did, MAX_DID_SIZE);
             strncpy(map_did[i].did, did, MAX_DID_SIZE);
-            sgx_thread_mutex_unlock(&map_did->m);
+            map_did[i].is_used = true;
             return 0;
         }
     }
-    sgx_thread_mutex_unlock(&map_did->m);
     return -1;
 }
 
 int rm_dids(const char *eph_did)
 {
-    sgx_thread_mutex_lock(&map_did->m);
     for (int i = 0; i < MAX_MAP_SIZE; ++i)
     {
         if (!strncmp(map_did[i].eph_did, eph_did, strlen(map_did[i].eph_did) + 1))
         {
+            sgx_thread_mutex_lock(&map_did->m);
             map_did[i].is_used = false;
             sgx_thread_mutex_unlock(&map_did->m);
             return 0;
         }
     }
-    sgx_thread_mutex_unlock(&map_did->m);
     return -1;
 }

@@ -14,7 +14,7 @@
 
 #include "Enclave_u.h"
 
-#define EVENTS_BUFF_SZ 256
+#define EVENTS_BUFF_SZ 1
 #define SERVERBACKLOG 10
 
 extern sgx_enclave_id_t enclave_id;
@@ -165,6 +165,7 @@ void *worker_thread(struct service *service)
 #if defined(OBLIVIRA_PRINT_LOG)
                 printf("Handle request here\n");
 #endif
+                printf("Thread ID: %ld\n", pthread_self());
                 service->handler(&thread_data);
 #if defined(OBLIVIRA_PRINT_LOG)
                 printf("Finished Handling request\n");

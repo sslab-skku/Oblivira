@@ -17,17 +17,39 @@ add_custom_command(
     COMMENT "Generating Enclave_u.{c,h}"
 )
 
+add_executable(oblivira
+  Oblivira.cpp
+  ServiceServer.cpp
+  Enclave_u.c
+  sgx_init.cpp
+  ocalls.cpp
+  jsoncpp.cpp
+  localstorage.cpp
+  )
 
-file(GLOB_RECURSE SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src "*.cpp" "*.cc" "*.c")
-add_executable(oblivira ${SRC_FILE} Enclave_u.c)
 include_directories(
-    ${SGX_INCLUDE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${SGX_INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_SOURCE_DIR}/Include
 	${WOLFSSL_INC}
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${JSONCPP_SRC_DIR}/json
-)
+        ${CMAKE_CURRENT_BINARY_DIR}
+	)
+
+	# ${CMAKE_CURRENT_SOURCE_DIR}/json
+	# ${CMAKE_CURRENT_SOURCE_DIR}/oram
+	# ${CMAKE_CURRENT_SOURCE_DIR}/threadpool
+	# ${CMAKE_CURRENT_SOURCE_DIR}/sgx
+      
+# file(GLOB_RECURSE SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src "*.cpp" "*.cc" "*.c")
+# add_executable(oblivira ${SRC_FILE} Enclave_u.c)
+# include_directories(
+#     ${SGX_INCLUDE_DIR}
+#     ${CMAKE_CURRENT_SOURCE_DIR}/include
+# 	${CMAKE_SOURCE_DIR}/Include
+# 	${WOLFSSL_INC}
+#     ${CMAKE_CURRENT_BINARY_DIR}
+#     ${JSONCPP_SRC_DIR}/json
+# )
 
 
 target_link_libraries(oblivira

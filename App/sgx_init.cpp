@@ -1,4 +1,4 @@
-#include "sgx/sgx_init.hh"
+#include "sgx_init.h"
 
 #include <stdio.h>
 #include <string.h>

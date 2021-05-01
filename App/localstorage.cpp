@@ -1,4 +1,4 @@
-#include "localstorage/localstorage.hh"
+#include "localstorage.h"
 #include "global_config.h"
 
 #if defined(OBLIVIRA_PRINT_LOG)

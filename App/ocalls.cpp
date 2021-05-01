@@ -3,10 +3,11 @@
 #include <sys/time.h>
 
 #ifdef OBLIVIRA_CACHE_ENABLED
-#include "localstorage/localstorage.hh"
+#include "localstorage.hh"
 #endif
 
 #include "Enclave_u.h"
+
 
 #ifdef OBLIVIRA_CACHE_ENABLED
 extern LocalStorage *ls;

@@ -5,9 +5,21 @@ enclave {
     from "PathORAM.edl" import *;
 
     trusted {
-        public void ecall_handle_did_req(long sslID, [out, size=sz] char* eph_did, size_t sz);
-        public void ecall_request_to_blockchain(long ctxID, int client_fd, long sslID,
-                                                [in, string] const char *addr, [in, string] const char *eph_did, [in, string] const char *query);
+        public void ecall_handle_did_req(long sslID,
+	                                [out, size=method_sz] char* did_method,
+					size_t method_sz,
+					[out, size=did_sz] char* eph_did,
+					size_t did_sz);
+
+       public void ecall_handle_doc_fetch(long sslID, [out, size=sz] char* eph_did, size_t sz);
+
+						
+    //     public void ecall_request_to_blockchain(long ctxID,
+    // 	                                        int client_fd,
+    // 						long sslID,
+    //                                             [in, string] const char *addr,
+    // 						[in, string] const char *eph_did,
+    // 						[in, string] const char *query);
     };
 
     untrusted {

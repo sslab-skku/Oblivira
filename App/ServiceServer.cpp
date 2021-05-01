@@ -60,7 +60,7 @@ int prepare_client_socket(char *addr, int port) {
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
   clientaddr.sin_family = AF_INET;
-  clientaddr.sin_port = htons(8080);
+  clientaddr.sin_port = htons(port);
   inet_pton(AF_INET, addr, &clientaddr.sin_addr);
 
   if (connect(sockfd, (struct sockaddr *)&clientaddr, sizeof(clientaddr)) < 0) {

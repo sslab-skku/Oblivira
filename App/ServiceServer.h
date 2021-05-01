@@ -54,7 +54,7 @@ int prepare_server_socket(int port);
 int prepare_client_socket(char *addr, int port);
 int prepare_epoll(int sock);
 long init_ssl_server_ctx(void);
-long init_ssl_server_ctx(void);
+long init_ssl_client_ctx(void);
 
 int create_tls_channel(struct service *service,
 		       struct thread_data *thread_data, int conn_fd);

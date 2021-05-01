@@ -9,6 +9,7 @@
 #include <wolfssl/ssl.h>
 
 #include "Enclave_u.h"
+#include "SafeQueue.h"
 #include "ServiceServer.h"
 #include "ThreadPool.h"
 #include "json.h"
@@ -19,19 +20,24 @@
 #endif
 
 #define NUM_DID_REQ_THR 2
+#define NUM_DRF_RECV_THR 2
 #define NUM_DOC_FETCH_THR 2
 
 #define MAX_PATH_LEN FILENAME_MAX
 #define MAX_EVENTS 64
 
 #define DID_REQ_PORT 4433
-#define DOC_FETCH_PORT 8081
+#define DRF_RECV_PORT 8081
 
 #define DRF_MAX_LEN 2048
 #include "debug.h"
 #include "global_config.h"
 
 #define UNIRESOLVER_URL "http://localhost:8080/1.0/identifiers/"
+#define UNIV_REQ                                                               \
+  "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+#define UNIV_REQ                                                               \
+  "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
 #define EVENTS_BUFF_SZ 64
 /* Global EID shared by multiple threads */
@@ -40,10 +46,16 @@ int kill_services = 0;
 
 /* service threadpool */
 struct service did_req_service;
+struct service drf_recv_service;
 struct service did_doc_fetch_service;
-ThreadPool ServicePool(NUM_DID_REQ_THR);
+ThreadPool ServicePool(NUM_DID_REQ_THR + NUM_DRF_RECV_THR);
 ThreadPool DocFetchPool(NUM_DOC_FETCH_THR);
 
+typedef struct {
+  char eph_did[MAX_DID_SIZE];
+} DocFetchReq;
+
+SafeQueue<std::string> docFetchQueue;
 // EPOLL fd
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 
@@ -51,134 +63,63 @@ static int did_req_epoll_fd, drf_recv_epoll_fd;
 LocalStorage *ls = new LocalStorage();
 #endif
 
-#define UNIV_REQ                                                               \
-  "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+// #define UNIV_REQ                                                               \
+//   "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
-#define MAX_MAP_SIZE 128
-struct safe_map {
-  char eph_did[MAX_DID_SIZE];
-  long ssl;
-  bool is_empty;
-  static std::mutex m;
-};
+// #define MAX_MAP_SIZE 128
+// struct safe_map {
+//   char eph_did[MAX_DID_SIZE];
+//   long ssl;
+//   bool is_empty;
+//   static std::mutex m;
+// };
 
-std::mutex safe_map::m;
-struct safe_map eph_ssl[MAX_MAP_SIZE];
+// std::mutex safe_map::m;
+// struct safe_map eph_ssl[MAX_MAP_SIZE];
 
-long get_eph_ssl(const char *did) {
-  long ssl;
-  for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-    if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1) &&
-        !eph_ssl[i].is_empty) {
-      ssl = eph_ssl[i].ssl;
-      return ssl;
-    }
-  }
-  errno = EINVAL;
-  return -1;
-}
-
-int set_eph_ssl(const char *did, long ssl) {
-  for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-    if (eph_ssl[i].is_empty) {
-      int min = strlen(did) < sizeof(eph_ssl[i].eph_did)
-                    ? strlen(did) + 1
-                    : sizeof(eph_ssl[i].eph_did);
-      eph_ssl->m.lock();
-      strncpy(eph_ssl[i].eph_did, did, min);
-      eph_ssl[i].ssl = ssl;
-      eph_ssl[i].is_empty = false;
-      eph_ssl->m.unlock();
-      return 0;
-    }
-  }
-  errno = EBUSY;
-  return -1;
-}
-
-int rm_eph_ssl(const char *did) {
-  for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-    if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1)) {
-
-      eph_ssl->m.lock();
-      eph_ssl[i].is_empty = true;
-      eph_ssl->m.unlock();
-      return 0;
-    }
-  }
-  errno = EINVAL;
-  return -1;
-}
-
-// void *did_req_handler(void *arg) {
-//   int ret;
-//   struct thread_data *thread_data = (struct thread_data *)arg;
-//   char eph_did[MAX_DID_SIZE] = {0};
-//   char buf[DATA_SIZE];
-
-//   if (int sgxStatus = ecall_handle_did_req(enclave_id, thread_data->ssl,
-//                                            eph_did, MAX_DID_SIZE)) {
-//     std::cerr << "[OBRIVIRA][did_req_handler] Failed to handle did request!"
-//               << std::endl;
-//     return NULL;
+// long get_eph_ssl(const char *did) {
+//   long ssl;
+//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
+//     if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1) &&
+//         !eph_ssl[i].is_empty) {
+//       ssl = eph_ssl[i].ssl;
+//       return ssl;
+//     }
 //   }
+//   errno = EINVAL;
+//   return -1;
+// }
 
-//   if (!eph_did[0]) {
-//     close(thread_data->conn_fd);
-//     return NULL;
+// int set_eph_ssl(const char *did, long ssl) {
+//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
+//     if (eph_ssl[i].is_empty) {
+//       int min = strlen(did) < sizeof(eph_ssl[i].eph_did)
+//                     ? strlen(did) + 1
+//                     : sizeof(eph_ssl[i].eph_did);
+//       eph_ssl->m.lock();
+//       strncpy(eph_ssl[i].eph_did, did, min);
+//       eph_ssl[i].ssl = ssl;
+//       eph_ssl[i].is_empty = false;
+//       eph_ssl->m.unlock();
+//       return 0;
+//     }
 //   }
+//   errno = EBUSY;
+//   return -1;
+// }
 
-// #if defined(OBLIVIRA_PRINT_LOG)
-//   std::cout << "[UNTRUSTED][did_req_handler] eph_did -> " << eph_did
-//             << std::endl;
-// #endif
+// int rm_eph_ssl(const char *did) {
+//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
+//     if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1)) {
 
-//   snprintf(buf, sizeof buf, UNIV_REQ, eph_did);
-
-// #if defined(OBLIVIRA_PRINT_LOG)
-//   printf("thread_data->ssl = %ld\n", thread_data->ssl);
-//   printf("eph_did = %s, length = %ld\n", eph_did, strlen(eph_did));
-// #endif
-
-//   if (set_eph_ssl(eph_did, thread_data->ssl) < 0) {
-//     perror("[UNTRUSTED][did_req_handler][set_eph_ssl]: ");
-//     return NULL;
+//       eph_ssl->m.lock();
+//       eph_ssl[i].is_empty = true;
+//       eph_ssl->m.unlock();
+//       return 0;
+//     }
 //   }
-
-//   int universalfd;
-
-//   struct sockaddr_in clientaddr;
-
-//   universalfd = socket(AF_INET, SOCK_STREAM, 0);
-
-//   clientaddr.sin_family = AF_INET;
-//   clientaddr.sin_port = htons(8080);
-//   inet_pton(AF_INET, "127.0.0.1", &clientaddr.sin_addr);
-
-//   if (connect(universalfd, (struct sockaddr *)&clientaddr,
-//   sizeof(clientaddr)) <
-//       0) {
-//     perror("[UNTRUSTED][did_req_handler][connect]: ");
-//   }
-//   ret = send(universalfd, buf, strlen(buf) + 1, 0);
-
-//   if (ret < 0) {
-//     perror("[UNTRUSTED][did_req_handler][write]: ");
-//     return NULL;
-//   }
-
-//   ret = recv(universalfd, buf, DATA_SIZE, 0);
-
-//   close(universalfd);
-
-// #if defined(OBLIVIRA_PRINT_LOG)
-//   std::cout
-//       << "[UNTRUSTED][did_req_handler] request to universal resolver
-//       succeded!"
-//       << std::endl;
-// #endif
-
-//   return NULL;
+//   errno = EINVAL;
+//   return -1;
 // }
 
 const char *extract_blockchain_url(const char *input) {
@@ -187,130 +128,10 @@ const char *extract_blockchain_url(const char *input) {
 const char *domain2ip(const char *domain) { return "52.153.152.19"; }
 #define RESPONSE "HTTP/1.1 200 OK\r\n\r\n"
 
-// void *did_doc_fetch_handler(void *arg) {
-//   int ret, n, sgxStatus;
-//   char input[DRF_MAX_LEN];
-//   struct thread_data *thread_data = (struct thread_data *)arg;
-
-//   // For connecting to blockchain
-//   int bc_server_fd;
-//   long ssl, serverssl;
-//   const char *ip;
-//   struct sockaddr_in servAddr;
-
-//   char buf[DATA_SIZE] = {0};
-//   char eph_did[MAX_DID_SIZE];
-
-//   // 1. receive DRF
-//   n = recv(thread_data->conn_fd, input, sizeof(input) - 1, 0);
-//   if (n < 0) {
-//     return NULL;
-//   }
-
-//   n = send(thread_data->conn_fd, RESPONSE, sizeof(RESPONSE), 0);
-//   if (n < 0) {
-//     return NULL;
-//   }
-
-//   // 2. Parse DRF to extract blockchain URL
-//   std::string data;
-
-//   Json::CharReaderBuilder builder;
-//   const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
-//   Json::Value query_info;
-
-//   data = strstr(input, "{");
-
-//   // parse http request body to get eph did
-//   reader->parse(data.c_str(), data.c_str() + data.length(), &query_info,
-//   NULL);
-
-//   // 3. Fetch document
-//   bc_server_fd = socket(AF_INET, SOCK_STREAM, 0);
-
-//   if (bc_server_fd < 0) {
-//     printf("Failed to create socket. errno: %i\n", errno);
-//     return NULL;
-//   }
-
-//   memset(&servAddr, 0, sizeof(servAddr)); /* clears memory block for use */
-//   servAddr.sin_family = AF_INET;          /* sets addressfamily to internet*/
-//   servAddr.sin_port = htons(443);         /* sets port to defined port */
-
-//   // FIXME
-//   ip = domain2ip(extract_blockchain_url(""));
-//   if (ip == NULL) {
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-// #if defined(OBLIVIRA_PRINT_LOG)
-//   std::cout << "Connecting to " << ip << ":" << ntohs(servAddr.sin_port)
-//             << std::endl;
-// #endif
-
-//   /* looks for the server at the entered address (ip in the command line) */
-//   if (inet_pton(AF_INET, ip, &servAddr.sin_addr) < 1) {
-//     /* checks validity of address */
-//     perror("[UNTRUSTED][did_doc_fetch_handler][inet_pton]: ");
-
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-//   if (connect(bc_server_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) <
-//       0) {
-//     ret = errno;
-//     perror("[UNTRUSTED][did_doc_fetch_handler][connect]: ");
-
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-//   strncpy(eph_did, query_info["identifier"].asString().c_str(),
-//   MAX_DID_SIZE);
-
-//   if ((serverssl = get_eph_ssl(eph_did)) < 0) {
-//     perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-//   if (rm_eph_ssl(eph_did) < 0) {
-//     perror("[UNTRUSTED][did_doc_fetch_handler][get_eph_ssl]: ");
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-// #if defined(OBLIVIRA_PRINT_LOG)
-//   std::cout << "FD: " << serverssl << std::endl;
-//   std::cout << "Addr: " << query_info["baseAddress"].asString().c_str()
-//             << std::endl;
-//   std::cout << "eph_did: " << eph_did
-//             << ", length: " << query_info["identifier"].asString().length()
-//             << std::endl;
-//   std::cout << "query: " << query_info["query"].asString().c_str() <<
-//   std::endl;
-// #endif
-
-//   sgxStatus = ecall_request_to_blockchain(
-//       enclave_id, thread_data->service->client_ctx, bc_server_fd, serverssl,
-//       query_info["baseAddress"].asString().c_str(), eph_did,
-//       query_info["query"].asString().c_str());
-//   if (sgxStatus != SGX_SUCCESS) {
-//     std::cout
-//         << "[Untrusted][ecall_request_blockchain] Failed to request
-//         blockchain!"
-//         << std::endl;
-
-//     close(bc_server_fd);
-//     return NULL;
-//   }
-
-//   return NULL;
-// }
-
 void destroy_oblivira(int status) {
+
+  close(did_req_service.server.socket_fd);
+  close(drf_recv_service.server.socket_fd);
   std::cout << "Shutting down oblivira" << std::endl;
   // stop_worker_threads();
   ServicePool.shutdown();
@@ -344,6 +165,33 @@ void init_oram_cache() {
   return;
 }
 
+int init_doc_fetch_service(struct service *s) {
+  // DID Request server
+  s->server.socket_fd = -1;
+  s->server.epoll_fd = -1;
+  s->server.ctx = -1;
+  s->server.ssl = -1;
+  // s->server->handler = did_req_handler;
+
+  // Connection to ION 
+  s->client.socket_fd = prepare_client_socket("52.153.152.19", 443);
+  s->client.epoll_fd = -1;
+  s->client.ctx = init_ssl_client_ctx();
+  if (s->client.ctx < 0) {
+    obv_err("Error creating client ctx\n");
+    return -1;
+  }
+  s->client.ssl = -1;
+  s->client.handler = NULL;
+
+  pthread_mutex_init(&s->server.send_lock, NULL);
+  pthread_mutex_init(&s->server.recv_lock, NULL);
+  pthread_mutex_init(&s->client.send_lock, NULL);
+  pthread_mutex_init(&s->client.recv_lock, NULL);
+
+  return 0;
+}
+
 int init_did_req_service(struct service *s) {
   // DID Request server
   s->server.socket_fd = prepare_server_socket(DID_REQ_PORT);
@@ -359,7 +207,7 @@ int init_did_req_service(struct service *s) {
   // s->server->handler = did_req_handler;
 
   // Connection to UR
-  s->client.socket_fd = prepare_client_socket("127.0.0.1", 8080);
+  s->client.socket_fd = prepare_client_socket("115.145.154.183", 8080);
   s->client.epoll_fd = -1;
   s->client.ctx = -1;
   s->client.ssl = -1;
@@ -373,6 +221,188 @@ int init_did_req_service(struct service *s) {
   return 0;
 }
 
+int init_drf_recv_service(struct service *s) {
+  // DRF Recv server, no TLS
+  s->server.socket_fd = prepare_server_socket(DRF_RECV_PORT);
+  if (s->server.socket_fd == -1) {
+    obv_err("failed creating epoll fd\n");
+    return -1;
+  }
+  s->server.epoll_fd = prepare_epoll(s->server.socket_fd);
+  if (s->server.epoll_fd == -1) {
+    obv_err("failed creating epoll fd\n");
+    return -1;
+  }
+  s->server.ctx = -1;
+  s->server.ssl = -1;
+  s->server.handler = NULL;
+
+  // Not used
+  s->client.socket_fd = -1;
+  s->client.epoll_fd = -1;
+  s->client.ctx = -1;
+  s->client.ssl = -1;
+  s->client.handler = NULL;
+
+  pthread_mutex_init(&s->server.send_lock, NULL);
+  pthread_mutex_init(&s->server.recv_lock, NULL);
+  pthread_mutex_init(&s->client.send_lock, NULL);
+  pthread_mutex_init(&s->client.recv_lock, NULL);
+
+  return 0;
+}
+
+void *doc_fetch_worker_thread(struct service *s) {
+  int ret;
+  int sgxStatus;
+  long ctx = s->client.ctx;
+  long ssl;
+  std::string eph_did;
+
+  obv_debug("[%lx]Entering Doc Fetch event looop\n", pthread_self());
+
+  // Make TLS connection to BCNet before entering loop
+  // socket connection to bc net was made during init
+  sgxStatus = enc_wolfSSL_new(enclave_id, &s->client.ssl, s->client.ctx);
+  if (sgxStatus != SGX_SUCCESS || s->client.ssl < 0) {
+    printf("wolfSSL_new failure\n");
+    return NULL;
+  }
+
+  sgxStatus =
+      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, s->client.socket_fd);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+    obv_err("wolfSSL_set_fd failure\n");
+    return NULL;
+  }
+
+  // keep this connection
+  // If this disconnects make socket keep-alive
+  // sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, s->client.ssl);
+  // if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+  //   obv_err("wolfSSL_connect failure\n");
+  //   return NULL;
+  // }
+
+  while (1) {
+    if (docFetchQueue.dequeue(eph_did) == true) {
+
+      // Input: ssl handle to blockchain net
+      // Enter sgx to fetch doc and return to requester
+      sgxStatus = ecall_handle_doc_fetch(enclave_id, s->client.ssl,
+                                         (char *)eph_did.c_str(), MAX_DID_SIZE);
+      if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+        printf("wolfSSL_connect failure\n");
+        return NULL;
+      }
+    }
+  }
+
+  return NULL;
+}
+
+#define RESPONSE "HTTP/1.1 200 OK\r\n\r\n"
+void *drf_recv_worker_thread(struct service *s) {
+  int i, ret, sgxStatus;
+  int events_cnt;
+  long ssl;
+  struct thread_data thread_data;
+  struct epoll_event events[EVENTS_BUFF_SZ];
+
+  struct sockaddr_in conn_addr;
+  socklen_t addrlen = sizeof(struct sockaddr_in);
+
+  char buf[DRF_MAX_LEN];
+
+  obv_debug("[%lx]Entering DRF Recv event looop\n", pthread_self());
+  while (1) {
+    if (kill_services == 1)
+      return NULL;
+
+    events_cnt = epoll_wait(s->server.epoll_fd, events, EVENTS_BUFF_SZ, 0);
+    if (events_cnt < 0) {
+      obv_err("[EventLoop] epoll_wait() error\n");
+      return NULL;
+    }
+    for (i = 0; i < events_cnt; i++) {
+      // Event at server fd, new connection
+      if (events[i].data.fd == s->server.socket_fd) {
+        obv_debug("[EventLoop] Accepting connect from Driver\n");
+        thread_data.conn_fd = accept(s->server.socket_fd,
+                                     (struct sockaddr *)&conn_addr, &addrlen);
+        if (thread_data.conn_fd < 0) {
+          obv_err("[DRF_RECV] Error accepting connection from driver\n");
+          continue;
+        }
+
+        // Receive DRF
+        ret = recv(thread_data.conn_fd, buf, DRF_MAX_LEN, 0);
+        if (ret < 0) {
+          obv_err("[DRF_RECV] Error receiving from driver\n");
+          continue;
+        }
+        // Send OK
+        ret = send(thread_data.conn_fd, RESPONSE, sizeof(RESPONSE), 0);
+        if (ret < 0) {
+          obv_err("[DRF_RECV] Error receiving from driver\n");
+          continue;
+        }
+        obv_debug("[%lx] DRF Received:\n %s\n", pthread_self(), buf);
+
+        // POST / HTTP/1.1
+        //   Host: dockerhost:8081
+        // 	  Connection: Keep-Alive
+        // 	  Request-Id: |83715629-4b7b786857706367.1.
+        // 	  Content-Type: application/json
+        // 	  Content-Length: 144
+
+        // 	  {"baseAddress":"https://beta.discover.did.microsoft.com/1.0/identifiers/","identifier":"did:ion:O4eKUHlbRSphlUsHiJMnBM63ZX8jkkyiApKA6uzOtz5Tne"}
+
+        // Handle DRF Here and extract DRF
+        Json::CharReaderBuilder builder;
+        const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+        Json::Value query_info;
+
+        std::string data = buf;
+
+        data.erase(0, data.find("{"));
+
+        reader->parse(data.c_str(), data.c_str() + data.length(), &query_info,
+                      NULL);
+
+        std::cout << "Parsed result:" << data;
+
+        // Queue eph_did request for docFetch Service
+        docFetchQueue.enqueue(data);
+
+        // Convert it to std::string
+        // std::string req_eph_did = eph_did;
+
+        // Put it in the queue
+        // docFetchQueue.enqueue(req_eph_did);
+
+        // Now enter SGX to
+
+        // For performance testing
+        // close(thread_data.conn_fd);
+        // Send ephDID to UR
+        // May check if connection is alive?
+        // ret = send(s->client.socket_fd, eph_did, strlen(eph_did), 0);
+        // if (ret < 0) {
+        //   obv_debug("Error sending Eph_DID to UR\n");
+        //   continue;
+        // }
+
+      }
+
+      else {
+        obv_debug("[%lx] Got event on existing connection\n", pthread_self());
+        obv_debug("[%lx] We don't handle this case\n", pthread_self());
+      }
+    }
+  }
+}
+
 void *did_req_worker_thread(struct service *s) {
   int i, ret, sgxStatus;
   int events_cnt;
@@ -383,13 +413,14 @@ void *did_req_worker_thread(struct service *s) {
   struct sockaddr_in conn_addr;
   socklen_t addrlen = sizeof(struct sockaddr_in);
 
+  char did_method[MAX_DID_METHOD_SIZE];
   char eph_did[MAX_DID_SIZE];
-
-  if (kill_services == 1)
-    return NULL;
-
-  obv_debug(" [%lx]Entering event looop\n", pthread_self());
+  char req2ur[256];
+  obv_debug("[%lx]Entering DID Req event looop\n", pthread_self());
   while (1) {
+    if (kill_services == 1)
+      return NULL;
+
     events_cnt = epoll_wait(s->server.epoll_fd, events, EVENTS_BUFF_SZ, 0);
     if (events_cnt < 0) {
       obv_err("[EventLoop] epoll_wait() error\n");
@@ -416,19 +447,41 @@ void *did_req_worker_thread(struct service *s) {
         // Don't read/write ssl in untrusted for thread safety
         // Receive DID, create EphDID in enclave
         sgxStatus =
-            ecall_handle_did_req(enclave_id, ssl, eph_did, MAX_DID_SIZE);
+            ecall_handle_did_req(enclave_id, ssl, did_method,
+                                 MAX_DID_METHOD_SIZE, eph_did, MAX_DID_SIZE);
         if (sgxStatus != SGX_SUCCESS)
           continue;
 
-        obv_debug("Received EphDID: %s\n", eph_did);
+        obv_debug("[%ld]Received DID Method: %s\n", pthread_self(), did_method);
+        obv_debug("[%ld]Received EphDID: %s\n", pthread_self(), eph_did);
+        snprintf(req2ur, sizeof(req2ur),
+                 "GET /1.0/identifiers/did:%s:%s "
+                 "HTTP/1.1\r\nHost:localhost:8080\r\nUser-Agent: "
+                 "curl/7.68.0\r\nAccept: */*\r\n\r\n",
+                 did_method, eph_did);
 
-        // Send ephDID to UR
-        // May check if connection is alive?
-        ret = send(s->client.socket_fd, eph_did, strlen(eph_did), 0);
+        ret = send(s->client.socket_fd, req2ur, strlen(req2ur), 0);
         if (ret < 0) {
-          obv_debug("Error sending Eph_DID to UR\n");
+          obv_err("Error sending Eph_DID to UR\n");
           continue;
         }
+        obv_debug("[%ld]Sent : \n%s\n", pthread_self(), req2ur);
+        // For performance testing
+        // close(thread_data.conn_fd);
+        // Send ephDID to UR
+        // May check if connection is alive?
+
+        // snprintf(req2ur, sizeof(req2ur), UNIV_REQ, eph_did);
+        // snprintf(
+        // 	 req2ur, sizeof(UNIV_REQ)+MAX_DID_SIZE,
+        // 	 "GET /1.0/identifiers/did: HTTP/1.1\r\nHost:
+        // localhost:8080\r\n",
+
+        // snprintf(req2ur, sizeof(UNIV_REQ)+MAX_DID_SIZE, "%s%s"
+
+        // char buf[256];
+        // recv(s->client.socket_fd, buf, 256, 0);
+        // printf("UR replied: %s\n", buf);
 
       }
 
@@ -438,7 +491,6 @@ void *did_req_worker_thread(struct service *s) {
       }
     }
   }
-  return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -464,27 +516,24 @@ int main(int argc, char *argv[]) {
   //   eph_ssl[i].is_empty = true;
   // }
 
+
   ret = init_did_req_service(&did_req_service);
   if (ret < 0) {
     printf("Error Initializing service\n");
     exit(1);
   }
 
-  // did_req_service.server_fd = prepare_sock ret =
-  //     init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
-  //                  did_req_handler);
-  // if (ret < 0) {
-  //   printf("Error Initializing service\n");
-  //   exit(1);
-  // }
+  ret = init_drf_recv_service(&drf_recv_service);
+  if (ret < 0) {
+    printf("Error Initializing service\n");
+    exit(1);
+  }
 
-  // ret = init_service(&did_doc_fetch_service, DOC_FETCH_PORT, TLS_DISABLED,
-  //                    TLS_ENABLED, did_doc_fetch_handler);
-
-  // if (ret < 0) {
-  //   printf("Error Initializing service\n");
-  //   exit(1);
-  // }
+  ret = init_doc_fetch_service(&doc_fetch_service);
+  if (ret < 0) {
+    printf("Error Initializing service\n");
+    exit(1);
+  }
 
   struct thread_data thread_data;
 
@@ -494,7 +543,15 @@ int main(int argc, char *argv[]) {
     ServicePool.submit(did_req_worker_thread, &did_req_service);
   }
 
-  // for (i = 0; i < NUM_DOC_FETCH_THR; i++) {
+  for (i = 0; i < NUM_DRF_RECV_THR; i++) {
+    ServicePool.submit(drf_recv_worker_thread, &drf_recv_service);
+  }
+
+  for (i = 0; i < NUM_DOC_FETCH_THR; i++) {
+    DocFetchPool.submit(doc_fetch_worker_thread, &doc_fetch_service);
+  }
+
+  // for (i = 0; i < NUM_DRF_RECV_THR; i++) {
   //   DocFetchPool.submit(worker_thread, &did_doc_fetch_service);
   // }
   while (1) {

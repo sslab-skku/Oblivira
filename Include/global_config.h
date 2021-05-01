@@ -18,6 +18,7 @@
 #define TAG_SIZE                    16
 
 #define MAX_DID_SIZE                64 // did
+#define MAX_DID_METHOD_SIZE                16
 #define DATA_SIZE                   4096 // temporal did_docs size
 #define MAX_BLOCKS                  128 // maximum capacity of PathORAM tree
 #define STASH_SIZE                  32 // It is typically sufficient to use 150 for PathORAM

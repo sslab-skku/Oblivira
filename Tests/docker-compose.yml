@@ -1,0 +1,21 @@
+version: "3.7"
+networks:
+  default:
+    name: universal-resolver
+services:
+  uni-resolver-web:
+    container_name: uni-resolver-web
+    build:
+      context: ./universal-resolver/
+    ports:
+      - "8080:8080"
+  driver-did-ion:
+    # image: universal-resolver_driver-did-ion
+    container_name: driver-did-ion
+    build:
+      context: ./uni-resolver-driver-did-ion/
+      dockerfile: ./.docker/Dockerfile
+    ports:
+      - "8111:8080"
+    extra_hosts: 
+      - "dockerhost:127.0.0.1"

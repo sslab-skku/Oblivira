@@ -1,0 +1,21 @@
+{
+  "DriverConfiguration": {
+    "Resilience": {
+      "EnableRetry": true,
+      "EnableCircuitBreaking": true
+    },
+    "Consensus": {
+      "Model": "FirstWins",
+      "InAgreement": "1"
+    },
+    "Nodes": [
+      {
+        "Name": "default",
+        "Uri": "https://beta.discover.did.microsoft.com/1.0/identifiers/",
+        "TimeoutInMilliseconds": "5000",
+        "Use": "Always",
+        "AllowCaching": false
+      }
+    ]
+  }
+}

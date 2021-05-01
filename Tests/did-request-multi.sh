@@ -1,7 +1,7 @@
 #!/bin/bash
 
-NUM_TRIAL=100
-NUM_THREADS=4
+NUM_TRIAL=20
+NUM_THREADS=8
 
 pid_list=()
 function sigint_handler() {
@@ -23,7 +23,7 @@ do
 	echo $pid
 	pid_list+=($pid)
     done
-    sleep 0.5
+    # sleep 0.1
 done
 
 

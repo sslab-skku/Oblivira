@@ -1,3 +1,4 @@
 etc
 build
 .vscode
+.clangd

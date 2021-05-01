@@ -40,6 +40,8 @@
 /* curl */
 #include <wolfssl/ssl.h>
 
+#include "debug.h"
+
 /* define */
 #define UNIRESOLVER_URL "http://localhost:8080/1.0/identifiers/"
 
@@ -329,6 +331,35 @@ void destroy_oblivira(int status) {
   exit(status);
 }
 
+
+
+int init_did_req_service(struct service* s) {
+  s->server_fd = prepare_server_socket(port);
+  if (s->server_fd == -1)
+    return -1;
+  s->epoll_fd = prepare_epoll(s->server_fd);
+  if (s->epoll_fd == -1)
+    return -1;
+  s->is_server_tls = is_server_tls;
+  if (is_server_tls == TLS_ENABLED) {
+    s->server_ctx = init_ssl_server_ctx();
+    if (s->server_ctx < 0)
+      return -1;
+  }
+  s->is_client_tls = is_client_tls;
+  if (is_client_tls == TLS_ENABLED) {
+    s->client_ctx = init_ssl_client_ctx();
+    if (s->client_ctx < 0)
+      return -1;
+  }
+
+  s->handler = handler;
+  // ss.push_back(s);
+  return 0;
+
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   int ret, i;
   int sgxStatus;
@@ -367,8 +398,9 @@ int main(int argc, char *argv[]) {
   didQueryPool.init();
   didDocFetchPool.init();
 
-  ret = init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
-                     did_req_handler);
+  did_req_service.server_fd = prepare_sock ret =
+      init_service(&did_req_service, DID_REQ_PORT, TLS_ENABLED, TLS_DISABLED,
+                   did_req_handler);
   if (ret < 0) {
     printf("Error Initializing service\n");
     exit(1);

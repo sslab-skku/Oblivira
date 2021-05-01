@@ -60,7 +60,7 @@ size_t send(int sockfd, const void *buf, size_t len, int flags)
 }
 
 
-std::string gen_eph_did(const size_t len)
+std::string gen_eph_did(size_t len)
 {
     int i;
     unsigned char rand;

@@ -1,8 +1,8 @@
 enclave {
     from "sgx_pthread.edl" import *;
     from "sgx_tstdc.edl" import *;
-    from "wolfssl/wolfssl.edl" import *;
-    from "PathORAM/PathORAM.edl" import *;
+    from "wolfssl.edl" import *;
+    from "PathORAM.edl" import *;
 
     trusted {
         public void ecall_handle_did_req(long sslID, [out, size=sz] char* eph_did, size_t sz);

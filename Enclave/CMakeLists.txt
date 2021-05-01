@@ -9,7 +9,9 @@ add_custom_command(
   OUTPUT Enclave_t.c Enclave_t.h
   COMMAND ${SGX_EDGER8R} --trusted Enclave.edl
   --search-path ${SGX_PATH}/include
-  --search-path ${CMAKE_CURRENT_SOURCE_DIR}/sgx/edl
+  --search-path ${CMAKE_CURRENT_SOURCE_DIR}
+  --search-path ${CMAKE_SOURCE_DIR}/Enclave
+  --search-path ${CMAKE_SOURCE_DIR}
   COMMENT "Generating Enclave_t.{c,h}"
   )
 
@@ -38,6 +40,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/Include
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/Enclave
   ${SGX_PATH}/include
   ${SGX_PATH}/include/tlibc
   ${SGX_PATH}/include/libcxx

@@ -13,12 +13,12 @@ add_custom_command(
     OUTPUT Enclave_u.c Enclave_u.h
     COMMAND ${SGX_EDGER8R} --untrusted Enclave.edl
     --search-path ${SGX_PATH}/include
-    --search-path ${CMAKE_SOURCE_DIR}/Enclave/sgx/edl
+    --search-path ${CMAKE_SOURCE_DIR}/Enclave/
     COMMENT "Generating Enclave_u.{c,h}"
 )
 
 add_executable(oblivira
-  Oblivira.cpp
+  Oblivira_v2.cpp
   ServiceServer.cpp
   Enclave_u.c
   sgx_init.cpp

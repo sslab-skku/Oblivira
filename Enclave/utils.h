@@ -36,7 +36,7 @@ int LowResTimer(void);
 size_t recv(int sockfd, void *buf, size_t len, int flags);
 size_t send(int sockfd, const void *buf, size_t len, int flags);
 
-std::string gen_eph_did(const size_t);
+std::string gen_eph_did( size_t);
 #ifdef OBLIVIRA_CACHE_ENABLED
 void initialize_cache(uint32_t max_blocks, uint32_t data_size,
                       uint32_t stash_size, uint32_t recursion_data_size,

@@ -293,7 +293,7 @@ void *doc_fetch_worker_thread(struct service *s) {
   // socket connection to bc net was made during init
   sgxStatus = enc_wolfSSL_new(enclave_id, &s->client.ssl, s->client.ctx);
   if (sgxStatus != SGX_SUCCESS || s->client.ssl < 0) {
-    printf("wolfSSL_new failure\n");
+    obv_err("wolfSSL_new failure\n");
     return NULL;
   }
 
@@ -314,6 +314,8 @@ void *doc_fetch_worker_thread(struct service *s) {
 
   std::pair<std::string, std::string> req;
   while (1) {
+    if (kill_services == 1)
+      return NULL;
     if (docFetchQueue.dequeue(req) == true) {
 
       obv_debug("Dequeued %s/%s\n", req.first.c_str(), req.second.c_str());
@@ -329,7 +331,7 @@ void *doc_fetch_worker_thread(struct service *s) {
                                  MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
       
       if (sgxStatus != SGX_SUCCESS || requester_sock == -1) {
-        printf("ecall_handle_doc_fetch failure\n");
+        obv_err("ecall_handle_doc_fetch failure\n");
         return NULL;
       }
       // Now disconnect requester
@@ -419,7 +421,7 @@ void *drf_recv_worker_thread(struct service *s) {
         // Place docfetch request in queuem
         // DocFetchReq* req = new DocFetchReq();
 
-        obv_print("Final URL:%s/%s\n", baseAddr.asCString(),
+        obv_debug("Final URL:%s/%s\n", baseAddr.asCString(),
                   eph_did.asCString());
 
         auto req = std::make_pair(baseAddr.asString(), eph_did.asString());
@@ -595,8 +597,8 @@ void *did_req_worker_thread(struct service *s) {
       }
 
       else {
-        obv_debug("[%lx] Got event on existing connection\n", pthread_self());
-        obv_debug("[%lx] We don't handle this case\n", pthread_self());
+        obv_err("[%lx] Got event on existing connection\n", pthread_self());
+        obv_err("[%lx] We don't handle this case\n", pthread_self());
       }
     }
   }
@@ -627,25 +629,25 @@ int main(int argc, char *argv[]) {
 
   ret = init_did_req_service(&did_req_service);
   if (ret < 0) {
-    printf("Error Initializing service\n");
+    obv_err("Error Initializing service\n");
     exit(1);
   }
 
   ret = init_drf_recv_service(&drf_recv_service);
   if (ret < 0) {
-    printf("Error Initializing service\n");
+    obv_err("Error Initializing service\n");
     exit(1);
   }
 
   ret = init_doc_fetch_service(&doc_fetch_service);
   if (ret < 0) {
-    printf("Error Initializing service\n");
+    obv_err("Error Initializing service\n");
     exit(1);
   }
 
   struct thread_data thread_data;
 
-  printf("Starting worker threads\n");
+  obv_print("Starting worker threads\n");
 
   for (i = 0; i < NUM_DID_REQ_THR; i++) {
     ServicePool.submit(did_req_worker_thread, &did_req_service);
@@ -663,6 +665,8 @@ int main(int argc, char *argv[]) {
   //   DocFetchPool.submit(worker_thread, &did_doc_fetch_service);
   // }
   while (1) {
+    if (kill_services == 1)
+      return NULL;
     char c = '\0';
     c = getchar();
     if ((c == 'q') || (c == EOF)) // stop if EOF or 'q'.

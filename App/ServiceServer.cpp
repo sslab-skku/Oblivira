@@ -40,7 +40,7 @@ int prepare_server_socket(int port) {
 
   if (bind(sockfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) <
       0) {
-    printf("Creating socket for %d failed\n", ntohs(serveraddr.sin_port));
+    obv_err("Creating socket for %d failed\n", ntohs(serveraddr.sin_port));
     perror("bind(2) failed");
     exit(EXIT_FAILURE);
   }
@@ -127,19 +127,19 @@ long create_ssl_conn(long ctx, int conn_fd) {
   long ssl;
   sgxStatus = enc_wolfSSL_new(enclave_id, &ssl, ctx);
   if (sgxStatus != SGX_SUCCESS || ssl < 0) {
-    printf("wolfSSL_new failure\n");
+    obv_err("wolfSSL_new failure\n");
     return -1;
   }
 #if defined(OBLIVIRA_PRINT_LOG)
-  printf("[TLS] context creation successful\n");
+  obv_err("[TLS] context creation successful\n");
 #endif
   sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, conn_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
-    printf("wolfSSL_set_fd failure\n");
+    obv_err("wolfSSL_set_fd failure\n");
     return -1;
   }
 #if defined(OBLIVIRA_PRINT_LOG)
-  printf("[TLS] setting socket fd successful\n");
+  obv_debug("[TLS] setting socket fd successful\n");
 #endif
   return ssl;
 }

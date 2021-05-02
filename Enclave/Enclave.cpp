@@ -50,12 +50,12 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
 
   WOLFSSL *ssl = GetSSL(sslID);
   if (ssl == NULL) {
-    printf("[ENCLAVE][handle_did_req] GetSSL failure\n");
+    obvenc_debug("[ENCLAVE][handle_did_req] GetSSL failure\n");
     return;
   }
 
   if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0) {
-    printf("[ENCLAVE][handle_did_req] wolfSSL_read failure\n");
+    obvenc_debug("[ENCLAVE][handle_did_req] wolfSSL_read failure\n");
     return;
   }
   input = buf;
@@ -86,7 +86,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
 
   // 4. Save DID, EPH_DID, ssl
 
-  printf("[Enclave][handle_did_req] DID Method:\'%s\'\nDID    :\'%s\'\nEph "
+  obvenc_debug("[Enclave][handle_did_req] DID Method:\'%s\'\nDID    :\'%s\'\nEph "
          "DID:\'%s\'\n",
          new_did_method.c_str(), did.c_str(), new_eph_did.c_str());
 
@@ -103,7 +103,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
   // strncpy(new_entry.eph_did, new_eph_did.c_str(), did_sz);
 
   // did_map[new_eph_did] = new_entry;
-  // printf("[Enclave] ssl: %ld\n", did_map[did].ssl);
+  // obvenc_debug("[Enclave] ssl: %ld\n", did_map[did].ssl);
 
   // Return
   strncpy(eph_did, new_eph_did.c_str(), did_sz);
@@ -116,7 +116,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
 
   if (cached == 1) {
     if (respond_did(ssl, buf) < 0) {
-      printf(
+      obvenc_debug(
           "[Enclave] [ENCLAVE][handle_did_req] Write to requester failed!\n");
     }
     return;
@@ -125,7 +125,7 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
   return;
 
 #if defined(OBLIVIRA_PRINT_LOG)
-  // printf("[Enclave] %s -> %s\n", did.c_str(), eph_did);
+  // obvenc_debug("[Enclave] %s -> %s\n", did.c_str(), eph_did);
 #endif
 }
 
@@ -141,10 +141,10 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
   char c;
   int requester_sock;
 
-  printf("[Enclave] [doc_fetch] req_eph_did %s\n", eph_did);
+  obvenc_debug("[Enclave] [doc_fetch] req_eph_did %s\n", eph_did);
   // 1. Convert eph_did to did
   auto entry = did_map[eph_did];
-  printf("[Enclave] [doc_fetch] %s->%s\n", eph_did, entry.first.c_str());
+  obvenc_debug("[Enclave] [doc_fetch] %s->%s\n", eph_did, entry.first.c_str());
 
   // 2. Send request to BC
   // TODO: use base address
@@ -156,35 +156,35 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 
   WOLFSSL *ssl = GetSSL(sslID);
   if (ssl == NULL) {
-    printf("[Enclave] [doc_fetch] invalid SSL\n");
+    obvenc_debug("[Enclave] [doc_fetch] invalid SSL\n");
     return -1;
   }
 
   auto ret = wolfSSL_connect(ssl);
   if (ret != SSL_SUCCESS) {
-    printf("[Enclave] [doc_fetch] Failed connecting to BC server\n");
+    obvenc_debug("[Enclave] [doc_fetch] Failed connecting to BC server\n");
     return -1;
   }
 
-  printf("[Enclave] [doc_fetch] Sending to BC server:\n%s", req2bc);
+  obvenc_debug("[Enclave] [doc_fetch] Sending to BC server:\n%s", req2bc);
   ret = wolfSSL_write(ssl, req2bc, strlen(req2bc));
   if (ret < 0) {
-    printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+    obvenc_debug("[Enclave] [doc_fetch] Failed sending request to BC server\n");
     return -1;
   }
 
   // Blocking
   ret = wolfSSL_read(ssl, did_doc, MAX_DID_DOC_SIZE);
   if (ret < 0) {
-    printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+    obvenc_debug("[Enclave] [doc_fetch] Failed sending request to BC server\n");
     return -1;
   }
-  printf("[Enclave] [doc_fetch] Received from BC server:\n%s", did_doc);
+  obvenc_debug("[Enclave] [doc_fetch] Received from BC server:\n%s", did_doc);
 
   ret = wolfSSL_write(entry.second, did_doc, MAX_DID_DOC_SIZE);
   if (ret < 0) {
 
-    printf("[Enclave] [doc_fetch] Failed returning document to requester\n");
+    obvenc_debug("[Enclave] [doc_fetch] Failed returning document to requester\n");
     return -1;
   }
 
@@ -194,7 +194,7 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
   return requester_sock;
   // 1. Convert Eph DID to DID
   // entry = did_map[req_eph_did];
-  // printf("[Enclave] found entry: %s\n", entry.eph_did.c_str());
+  // obvenc_debug("[Enclave] found entry: %s\n", entry.eph_did.c_str());
 
   // 2. Fetch DID Doc
 
@@ -215,7 +215,7 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 //   WOLFSSL *ssl;
 
 //   if (get_dids(eph_did, did) < 0) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] get did failure\n");
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] get did failure\n");
 //     RemoveSSL(sslID);
 //     return;
 //   }
@@ -223,31 +223,31 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 //   /* connect to blockchain */
 //   ctx = GetCTX(ctxID);
 //   if (ctx == NULL) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] GetCTX failure\n");
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] GetCTX failure\n");
 //     RemoveSSL(sslID);
 //     return;
 //   }
 //   ssl = wolfSSL_new(ctx);
 //   if (ssl == NULL) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] Create ssl
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] Create ssl
 //     failure\n"); RemoveSSL(sslID); return;
 //   }
 
 //   if (wolfSSL_set_fd(ssl, client_fd) != SSL_SUCCESS) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_set_fd
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_set_fd
 //     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   if (wolfSSL_connect(ssl) != SSL_SUCCESS) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_connect
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_connect
 //     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   /* generate did rquest */
 
 // #if defined(OBLIVIRA_PRINT_LOG)
-//   printf("[Enclave] Address: %s\n", addr);
-//   printf("[Enclave] eph_did: %s -> did: %s\n", eph_did, did);
+//   obvenc_debug("[Enclave] Address: %s\n", addr);
+//   obvenc_debug("[Enclave] eph_did: %s -> did: %s\n", eph_did, did);
 // #endif
 
 //   if (strlen(addr) != 0) {
@@ -264,7 +264,7 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 //     doc = query;
 //   }
 
-//   snprintf(buf, sizeof buf, GET_REQUEST, url.c_str(), did);
+//   snobvenc_debug(buf, sizeof buf, GET_REQUEST, url.c_str(), did);
 //   strncat(buf, "Host: ", strlen("Host: ") + 1);
 //   strncat(buf, base_addr.c_str(), base_addr.length() + 1);
 //   strncat(buf, GET_REQUEST_END, strlen(GET_REQUEST_END) + 1);
@@ -273,14 +273,14 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 
 //   /* request to blockchain */
 //   if (wolfSSL_write(ssl, buf, strlen(buf)) < 0) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write
 //     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   buf[0] = 0;
 
 //   if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_read
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_read
 //     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
@@ -291,12 +291,12 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
 //   ssl = GetSSL(sslID);
 
 // #if defined(OBLIVIRA_PRINT_LOG)
-//   printf("[Enclave] sslID: %ld\n", sslID);
-//   printf("[Enclave] buf: %s\nlenght: %d\n", buf, strlen(buf));
+//   obvenc_debug("[Enclave] sslID: %ld\n", sslID);
+//   obvenc_debug("[Enclave] buf: %s\nlenght: %d\n", buf, strlen(buf));
 // #endif
 
 //   if (wolfSSL_write(ssl, buf, strlen(buf) + 1) < 0) {
-//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write to
+//     obvenc_debug("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write to
 //     requester "
 //            "failure\n");
 //   }

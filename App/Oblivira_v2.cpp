@@ -74,65 +74,6 @@ static int did_req_epoll_fd, drf_recv_epoll_fd;
 LocalStorage *ls = new LocalStorage();
 #endif
 
-// #define UNIV_REQ                                                               \
-//   "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-
-// #define MAX_MAP_SIZE 128
-// struct safe_map {
-//   char eph_did[MAX_DID_SIZE];
-//   long ssl;
-//   bool is_empty;
-//   static std::mutex m;
-// };
-
-// std::mutex safe_map::m;
-// struct safe_map eph_ssl[MAX_MAP_SIZE];
-
-// long get_eph_ssl(const char *did) {
-//   long ssl;
-//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-//     if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1) &&
-//         !eph_ssl[i].is_empty) {
-//       ssl = eph_ssl[i].ssl;
-//       return ssl;
-//     }
-//   }
-//   errno = EINVAL;
-//   return -1;
-// }
-
-// int set_eph_ssl(const char *did, long ssl) {
-//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-//     if (eph_ssl[i].is_empty) {
-//       int min = strlen(did) < sizeof(eph_ssl[i].eph_did)
-//                     ? strlen(did) + 1
-//                     : sizeof(eph_ssl[i].eph_did);
-//       eph_ssl->m.lock();
-//       strncpy(eph_ssl[i].eph_did, did, min);
-//       eph_ssl[i].ssl = ssl;
-//       eph_ssl[i].is_empty = false;
-//       eph_ssl->m.unlock();
-//       return 0;
-//     }
-//   }
-//   errno = EBUSY;
-//   return -1;
-// }
-
-// int rm_eph_ssl(const char *did) {
-//   for (int i = 0; i < MAX_MAP_SIZE; ++i) {
-//     if (!strncmp(eph_ssl[i].eph_did, did, strlen(eph_ssl[i].eph_did) + 1)) {
-
-//       eph_ssl->m.lock();
-//       eph_ssl[i].is_empty = true;
-//       eph_ssl->m.unlock();
-//       return 0;
-//     }
-//   }
-//   errno = EINVAL;
-//   return -1;
-// }
-
 const char *extract_blockchain_url(const char *input) {
   return "beta.discover.did.microsoft.com";
 }
@@ -144,14 +85,10 @@ void destroy_oblivira(int status) {
   close(did_req_service.server.socket_fd);
   close(drf_recv_service.server.socket_fd);
   std::cout << "Shutting down oblivira" << std::endl;
-  // stop_worker_threads();
   ServicePool.shutdown();
   DocFetchPool.shutdown();
 
   std::cout << "Thread pool shut down" << std::endl;
-  // destroy_service(&did_req_service);
-  // destroy_service(&did_doc_fetch_service);
-
   std::cout << "Services shut down" << std::endl;
   sgx_destroy_enclave(enclave_id);
 
@@ -190,6 +127,7 @@ int init_doc_fetch_service(struct service *s) {
     obv_err("Error creating client socket for doc_fetch_service\n");
     return -1;
   }
+
   s->client.epoll_fd = -1;
   s->client.ctx = init_ssl_client_ctx();
   if (s->client.ctx < 0) {
@@ -276,10 +214,14 @@ int init_drf_recv_service(struct service *s) {
   return 0;
 }
 
+
+
+
 void *doc_fetch_worker_thread(struct service *s) {
   int ret;
   int sgxStatus;
   long ctx = s->client.ctx;
+  int socket_fd;
   long ssl;
   // std::string eph_did;
   // DocFetchReq req;
@@ -289,6 +231,15 @@ void *doc_fetch_worker_thread(struct service *s) {
   int requester_sock;
   obv_debug("[%lx]Entering Doc Fetch event looop\n", pthread_self());
 
+
+  // connect socket;
+  socket_fd = prepare_client_socket("52.153.152.19", 443);
+  if (socket_fd < 0) {
+    obv_err("Error creating client socket for doc_fetch_service\n");
+    return NULL;
+  }
+  // enable_keepalive(socket_fd);
+  
   // Make TLS connection to BCNet before entering loop
   // socket connection to bc net was made during init
   sgxStatus = enc_wolfSSL_new(enclave_id, &s->client.ssl, s->client.ctx);
@@ -298,7 +249,7 @@ void *doc_fetch_worker_thread(struct service *s) {
   }
 
   sgxStatus =
-      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, s->client.socket_fd);
+      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, socket_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
     obv_err("wolfSSL_set_fd failure\n");
     return NULL;
@@ -311,36 +262,42 @@ void *doc_fetch_worker_thread(struct service *s) {
   //   obv_err("wolfSSL_connect failure\n");
   //   return NULL;
   // }
-
+  
+  
   std::pair<std::string, std::string> req;
   while (1) {
 
     if (docFetchQueue.dequeue(req) == true) {
-      
+
       obv_debug("Dequeued %s/%s\n", req.first.c_str(), req.second.c_str());
 
       // Input: ssl handle to blockchain net
       // Enter sgx to fetch doc and return to requester
-
+      
       strncpy(base_addr, req.first.c_str(), MAX_BASE_ADDR_SIZE);
       strncpy(eph_did, req.second.c_str(), MAX_DID_SIZE);
 
+          
       sgxStatus = ecall_handle_doc_fetch(
           enclave_id, &requester_sock, s->client.ssl, base_addr,
           MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
 
       if (sgxStatus != SGX_SUCCESS || requester_sock == -1) {
         obv_err("ecall_handle_doc_fetch failure\n");
+
+	// Reconnect and retry if connection problem
         return NULL;
       }
       // Now disconnect requester
       obv_debug("Closing requester sock %d\n", requester_sock);
       close(requester_sock);
     }
+
     if (kill_services == 1)
       return NULL;
+    
   }
-
+  
   return NULL;
 }
 
@@ -390,17 +347,8 @@ void *drf_recv_worker_thread(struct service *s) {
           continue;
         }
         close(conn_fd);
+	
         obv_debug("[%lx] DRF Received:\n %s\n", pthread_self(), buf);
-
-        // POST / HTTP/1.1
-        //   Host: dockerhost:8081
-        // 	  Connection: Keep-Alive
-        // 	  Request-Id: |83715629-4b7b786857706367.1.
-        // 	  Content-Type: application/json
-        // 	  Content-Length: 144
-
-        // 	  {"baseAddress":"https://beta.discover.did.microsoft.com/1.0/identifiers/","identifier":"did:ion:O4eKUHlbRSphlUsHiJMnBM63ZX8jkkyiApKA6uzOtz5Tne"}
-
         // Handle DRF Here and extract DRF
         std::string data = buf;
         data.erase(0, data.find("{"));
@@ -560,37 +508,6 @@ void *did_req_worker_thread(struct service *s) {
           perror("Error connecting to client ");
         }
 
-        // close(s->client.socket_fd);
-
-        // s->client.socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-        // struct sockaddr_in clientaddr;
-        // clientaddr.sin_family = AF_INET;
-        // clientaddr.sin_port = htons(8080);
-        // inet_pton(AF_INET, "127.0.0.1", &clientaddr.sin_addr);
-
-        // if (connect(s->client.socket_fd, (struct sockaddr *)&clientaddr,
-        //             sizeof(clientaddr)) < 0) {
-        //   obv_err("Error reconnecting to UR\n");
-        //   perror("Error connecting to client ");
-        // }
-
-        // For performance testing
-        // close(thread_data.conn_fd);
-        // Send ephDID to UR
-        // May check if connection is alive?
-
-        // snprintf(req2ur, sizeof(req2ur), UNIV_REQ, eph_did);
-        // snprintf(
-        // 	 req2ur, sizeof(UNIV_REQ)+MAX_DID_SIZE,
-        // 	 "GET /1.0/identifiers/did: HTTP/1.1\r\nHost:
-        // localhost:8080\r\n",
-
-        // snprintf(req2ur, sizeof(UNIV_REQ)+MAX_DID_SIZE, "%s%s"
-
-        // char buf[256];
-        // recv(s->client.socket_fd, buf, 256, 0);
-        // printf("UR replied: %s\n", buf);
-
       }
 
       else {
@@ -660,9 +577,6 @@ int main(int argc, char *argv[]) {
     DocFetchPool.submit(doc_fetch_worker_thread, &doc_fetch_service);
   }
 
-  // for (i = 0; i < NUM_DRF_RECV_THR; i++) {
-  //   DocFetchPool.submit(worker_thread, &did_doc_fetch_service);
-  // }
   while (1) {
     if (kill_services == 1)
       return NULL;

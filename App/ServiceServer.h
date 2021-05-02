@@ -23,21 +23,6 @@ struct service {
   struct connection client;
 };
 
-
-
-/* struct service { */
-/*   int server_fd; */
-/*   int server_epoll_fd; */
-/*   int client_fd; */
-/*   int client_epoll_fd; */
-/*   /\* int is_server_tls; *\/ */
-/*   /\* int is_client_tls; *\/ */
-/*   long server_ctx; */
-/*   long client_ctx; */
-/*   /\* long ssl; *\/ */
-/*   void *(*handler)(void *arg); */
-/* }; */
-
 struct thread_data {
   struct service *service;
   int conn_fd;

@@ -45,7 +45,7 @@ extern "C" {
 
 
 
-#define obv_err(fmt, args...)                                                  \
+#define obvenc_err(fmt, args...)                                                  \
   do {                                                                         \
     printf("%s[App][%s]*ERROR*%s: " fmt, COLOR_RED, __func__, COLOR_NORMAL,##args);	\
   } while (0)

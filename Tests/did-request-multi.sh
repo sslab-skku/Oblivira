@@ -3,6 +3,7 @@
 NUM_TRIAL=100
 NUM_THREADS=4
 
+
 pid_list=()
 function sigint_handler() {
     # for pid in "${pid_list[@]}"
@@ -14,6 +15,7 @@ function sigint_handler() {
 
 trap sigint_handler SIGINT
 
+start=`date +%s`
 for i in $(seq 1 $NUM_TRIAL)
 do
 
@@ -24,6 +26,17 @@ do
     done
     sleep 0.1
     echo -e "\n-------------------$i th iteration----------\n"
+
+    end=`date +%s`
+    runtime=$((end-start))
+
+    if [ $runtime -gt 20 ] 
+    then
+	echo "\n----------Time's up---$runtime seconds elapsed----------\n"
+	exit 1
+    else
+	echo "\n-------------------$runtime seconds elapsed----------\n"
+    fi
     
 done
 

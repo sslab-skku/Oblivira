@@ -3,20 +3,23 @@
 #include "global_config.h"
 #include "ssl.h"
 #include "utils.h"
+#include "wolfssl/ssl.h"
 #include <cstring>
 #include <iostream>
 #include <map>
 #include <string>
+#include <tuple>
+#include <utility>
+// typedef struct did_map_entry {
+//   // char eph_did[MAX_DID_SIZE];
+//   std::string eph_did;
+//   std::string did;
+//   // char did[MAX_DID_SIZE];
+//   WOLFSSL *ssl;
+// } DIDMapEntry;
 
-typedef struct did_map_entry {
-  // char eph_did[MAX_DID_SIZE];
-  std::string eph_did;
-  std::string did;
-  // char did[MAX_DID_SIZE];
-  WOLFSSL *ssl;
-} DIDMapEntry;
-
-std::map<std::string, DIDMapEntry> did_map;
+// std::map<std::string, DIDMapEntry> did_map;
+std::map<std::string, std::pair<std::string, WOLFSSL *>> did_map;
 
 sgx_thread_mutex_t did_map::m;
 struct did_map map_did[MAX_MAP_SIZE];
@@ -39,8 +42,7 @@ int respond_did(WOLFSSL *ssl, std::string buf) {
   return wolfSSL_write(ssl, buf.c_str(), buf.length());
 }
 
-void ecall_handle_did_req(long sslID, char *did_method, size_t method_sz,
-                          char *eph_did, size_t did_sz) {
+void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
   int ret, cached;
   size_t len;
   char buf[DATA_SIZE];
@@ -57,41 +59,54 @@ void ecall_handle_did_req(long sslID, char *did_method, size_t method_sz,
     return;
   }
   input = buf;
-  printf("%s\n", input.c_str());
+
   // GET /1.0/identifiers/did:ion:EiClkZMDxPKqC9c-umQfTkR8vvZ9JPhl_xLDI9Nfk38w5w
   // HTTP/1.1
 
-  // Erase GET /1.0/identifiers/did:
-  input.erase(0, 25);
-  // Erase HTTP/1.1
+  // 1.Must extract 'did:ion' + DID
+  //   a. erase up to GET /1.0/identifiers/
+  input.erase(0, 21);
+  //   b. erase  HTTP/1.1 in the end
   input.erase(input.find(" HTTP/1.1"), input.npos);
+  //   c. Separate method and identifier
+  size_t pos = input.find(":");
+  pos = input.find(":", pos + 1);
 
   new_did_method = input;
-  new_did_method.erase(new_did_method.find(":"), new_did_method.npos);
-
   did = input;
-  did.erase(0, did.find(":") + 1);
 
+  new_did_method.erase(pos, new_did_method.npos);
+  did.erase(0, pos + 1);
+
+  // 2. generate EPH_DID for DID
   new_eph_did = gen_eph_did(did.length());
+  // 3. put 'did:ion' on DID and EPH_DID
+  did = new_did_method + ':' + did;
+  new_eph_did = new_did_method + ':' + new_eph_did;
 
-  printf("DID Method:\'%s\'\nDID    :\'%s\'\nEph DID:\'%s\'\n",
+  // 4. Save DID, EPH_DID, ssl
+
+  printf("[Enclave][handle_did_req] DID Method:\'%s\'\nDID    :\'%s\'\nEph "
+         "DID:\'%s\'\n",
          new_did_method.c_str(), did.c_str(), new_eph_did.c_str());
 
-  DIDMapEntry new_entry;
+  // DIDMapEntry new_entry;
 
   // Save to map
-  new_entry.ssl = ssl;
-  new_entry.did = did;
-  new_entry.eph_did = new_eph_did;
+  // new_entry.ssl = ssl;
+  // new_entry.did = did;
+  // new_entry.eph_did = new_eph_did;
+
+  auto pair = std::make_pair(did, ssl);
+  did_map[new_eph_did] = pair;
   // strncpy(new_entry.did, did.c_str(), did_sz);
   // strncpy(new_entry.eph_did, new_eph_did.c_str(), did_sz);
 
-  did_map[new_eph_did] = new_entry;
-  printf("ssl: %ld\n", did_map[did].ssl);
+  // did_map[new_eph_did] = new_entry;
+  // printf("[Enclave] ssl: %ld\n", did_map[did].ssl);
 
-    // Return
+  // Return
   strncpy(eph_did, new_eph_did.c_str(), did_sz);
-  strncpy(did_method, new_did_method.c_str(), method_sz);
 
 #if defined(OBLIVIRA_CACHE_ENABLED)
   /* cache check */
@@ -101,43 +116,75 @@ void ecall_handle_did_req(long sslID, char *did_method, size_t method_sz,
 
   if (cached == 1) {
     if (respond_did(ssl, buf) < 0) {
-      printf("[ENCLAVE][handle_did_req] Write to requester failed!\n");
+      printf(
+          "[Enclave] [ENCLAVE][handle_did_req] Write to requester failed!\n");
     }
     return;
   }
 #endif
   return;
 
-  /* return */
-  // std::strncpy(eph_did, did.substr(0, len + 1).c_str(), len + 1);
-  // std::strncat(eph_did, gen_eph_did(did.length() - len).c_str(),
-  //              did.length() - len);
-
-  // if (set_dids(eph_did, did.c_str()) < 0) {
-  //   printf("[ENCLAVE][handle_did_req] set did map failure\n");
-  //   eph_did[0] = 0;
-  // }
-
 #if defined(OBLIVIRA_PRINT_LOG)
-  // printf("%s -> %s\n", did.c_str(), eph_did);
+  // printf("[Enclave] %s -> %s\n", did.c_str(), eph_did);
 #endif
 }
 
 // Input ssl connection to blockchain net
+#define MAX_BC_REQ_SIZE 2048
+#define MAX_DID_DOC_SIZE 4096
+void ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
+                            char *eph_did, size_t ed_sz) {
+  // DIDMapEntry entry;
+  char req2bc[MAX_BC_REQ_SIZE];
+  char did_doc[MAX_DID_DOC_SIZE];
+  int i, count;
+  char c;
 
-void ecall_handle_doc_fetch(long sslID, char* eph_did, size_t sz) {
-  DIDMapEntry entry;
-  std::string req_eph_did = eph_did;
+  printf("[Enclave] [doc_fetch] req_eph_did %s\n", eph_did);
+  // 1. Convert eph_did to did
+  auto entry = did_map[eph_did];
+  printf("[Enclave] [doc_fetch] %s->%s\n", eph_did, entry.first.c_str());
+
+  // 2. Send request to BC
+  // TODO: use base address
+  snprintf(req2bc, sizeof(req2bc),
+           "GET /1.0/identifiers/%s "
+           "HTTP/1.1\r\nHost:beta.discover.did.microsoft.com\r\nUser-Agent: "
+           "curl/7.68.0\r\nAccept: */*\r\n\r\n",
+           entry.first.c_str());
+
   WOLFSSL *ssl = GetSSL(sslID);
   if (ssl == NULL) {
+    printf("[Enclave] [doc_fetch] invalid SSL\n");
     return;
   }
 
-  printf("[doc_fetch]req_eph_did %s\n", req_eph_did.c_str());
+  auto ret = wolfSSL_connect(ssl);
+  if (ret != SSL_SUCCESS) {
+    printf("[Enclave] [doc_fetch] Failed connecting to BC server\n");
+  }
 
+  printf("[Enclave] [doc_fetch] Sending to BC server:\n%s", req2bc);
+  ret = wolfSSL_write(ssl, req2bc, strlen(req2bc));
+  if (ret != SSL_SUCCESS) {
+    printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+  }
+
+  // Blocking
+  ret = wolfSSL_read(ssl, did_doc, MAX_DID_DOC_SIZE);
+  if (ret < 0) {
+    printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+  }
+  printf("[Enclave] [doc_fetch] Received from BC server:\n%s", did_doc);
+
+  ret = wolfSSL_write(entry.second, did_doc, MAX_DID_DOC_SIZE);
+  if (ret < 0) {
+    printf("[Enclave] [doc_fetch] Failed returning document to requester\n");
+  }
+  return;
   // 1. Convert Eph DID to DID
-  entry = did_map[req_eph_did];
-  printf("found entry: %s\n",entry.eph_did.c_str());
+  // entry = did_map[req_eph_did];
+  // printf("[Enclave] found entry: %s\n", entry.eph_did.c_str());
 
   // 2. Fetch DID Doc
 
@@ -158,7 +205,7 @@ void ecall_handle_doc_fetch(long sslID, char* eph_did, size_t sz) {
 //   WOLFSSL *ssl;
 
 //   if (get_dids(eph_did, did) < 0) {
-//     printf("[ENCLAVE][request_to_blockchain] get did failure\n");
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] get did failure\n");
 //     RemoveSSL(sslID);
 //     return;
 //   }
@@ -166,36 +213,31 @@ void ecall_handle_doc_fetch(long sslID, char* eph_did, size_t sz) {
 //   /* connect to blockchain */
 //   ctx = GetCTX(ctxID);
 //   if (ctx == NULL) {
-//     printf("[ENCLAVE][request_to_blockchain] GetCTX failure\n");
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] GetCTX failure\n");
 //     RemoveSSL(sslID);
 //     return;
 //   }
 //   ssl = wolfSSL_new(ctx);
 //   if (ssl == NULL) {
-//     printf("[ENCLAVE][request_to_blockchain] Create ssl failure\n");
-//     RemoveSSL(sslID);
-//     return;
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] Create ssl
+//     failure\n"); RemoveSSL(sslID); return;
 //   }
 
 //   if (wolfSSL_set_fd(ssl, client_fd) != SSL_SUCCESS) {
-//     printf("[ENCLAVE][request_to_blockchain] wolfSSL_set_fd failure\n");
-//     RemoveSSL(sslID);
-//     wolfSSL_free(ssl);
-//     return;
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_set_fd
+//     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   if (wolfSSL_connect(ssl) != SSL_SUCCESS) {
-//     printf("[ENCLAVE][request_to_blockchain] wolfSSL_connect failure\n");
-//     RemoveSSL(sslID);
-//     wolfSSL_free(ssl);
-//     return;
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_connect
+//     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   /* generate did rquest */
 
 // #if defined(OBLIVIRA_PRINT_LOG)
-//   printf("Address: %s\n", addr);
-//   printf("eph_did: %s -> did: %s\n", eph_did, did);
+//   printf("[Enclave] Address: %s\n", addr);
+//   printf("[Enclave] eph_did: %s -> did: %s\n", eph_did, did);
 // #endif
 
 //   if (strlen(addr) != 0) {
@@ -221,19 +263,15 @@ void ecall_handle_doc_fetch(long sslID, char* eph_did, size_t sz) {
 
 //   /* request to blockchain */
 //   if (wolfSSL_write(ssl, buf, strlen(buf)) < 0) {
-//     printf("[ENCLAVE][request_to_blockchain] wolfSSL_write failure\n");
-//     RemoveSSL(sslID);
-//     wolfSSL_free(ssl);
-//     return;
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write
+//     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   buf[0] = 0;
 
 //   if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0) {
-//     printf("[ENCLAVE][request_to_blockchain] wolfSSL_read failure\n");
-//     RemoveSSL(sslID);
-//     wolfSSL_free(ssl);
-//     return;
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_read
+//     failure\n"); RemoveSSL(sslID); wolfSSL_free(ssl); return;
 //   }
 
 //   buf[ret] = '\0';
@@ -243,12 +281,13 @@ void ecall_handle_doc_fetch(long sslID, char* eph_did, size_t sz) {
 //   ssl = GetSSL(sslID);
 
 // #if defined(OBLIVIRA_PRINT_LOG)
-//   printf("sslID: %ld\n", sslID);
-//   printf("buf: %s\nlenght: %d\n", buf, strlen(buf));
+//   printf("[Enclave] sslID: %ld\n", sslID);
+//   printf("[Enclave] buf: %s\nlenght: %d\n", buf, strlen(buf));
 // #endif
 
 //   if (wolfSSL_write(ssl, buf, strlen(buf) + 1) < 0) {
-//     printf("[ENCLAVE][request_to_blockchain] wolfSSL_write to requester "
+//     printf("[Enclave] [ENCLAVE][request_to_blockchain] wolfSSL_write to
+//     requester "
 //            "failure\n");
 //   }
 //   RemoveSSL(sslID);

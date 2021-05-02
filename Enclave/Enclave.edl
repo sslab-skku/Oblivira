@@ -6,12 +6,14 @@ enclave {
 
     trusted {
         public void ecall_handle_did_req(long sslID,
-	                                [out, size=method_sz] char* did_method,
-					size_t method_sz,
 					[out, size=did_sz] char* eph_did,
 					size_t did_sz);
 
-       public void ecall_handle_doc_fetch(long sslID, [out, size=sz] char* eph_did, size_t sz);
+       public void ecall_handle_doc_fetch(long sslID,
+       	      	   			  [in, size=ba_sz] char* base_addr,
+					  size_t ba_sz,
+       	      	   			  [in, size=ed_sz] char* eph_did,
+					  size_t ed_sz);
 
 						
     //     public void ecall_request_to_blockchain(long ctxID,

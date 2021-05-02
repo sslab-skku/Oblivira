@@ -5,7 +5,9 @@
 #include <pthread.h>
 #include <string.h>
 #include <string>
+
 #include <sys/epoll.h>
+#include <utility>
 #include <wolfssl/ssl.h>
 
 #include "Enclave_u.h"
@@ -29,6 +31,8 @@
 #define DID_REQ_PORT 4433
 #define DRF_RECV_PORT 8081
 
+#define BASE_ADDR_MAX_LEN 128
+
 #define DRF_MAX_LEN 2048
 #include "debug.h"
 #include "global_config.h"
@@ -51,11 +55,17 @@ struct service did_doc_fetch_service;
 ThreadPool ServicePool(NUM_DID_REQ_THR + NUM_DRF_RECV_THR);
 ThreadPool DocFetchPool(NUM_DOC_FETCH_THR);
 
-typedef struct {
-  char eph_did[MAX_DID_SIZE];
-} DocFetchReq;
+// typedef struct {
+//   char eph_did[MAX_DID_SIZE];
+// } DocFetchReq;
 
-SafeQueue<std::string> docFetchQueue;
+// class DocFetchReq {
+// public:
+//   std::string baseAddr;
+//   std::string eph_did;
+// };
+
+SafeQueue<std::pair<std::string, std::string>> docFetchQueue;
 // EPOLL fd
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 
@@ -173,7 +183,7 @@ int init_doc_fetch_service(struct service *s) {
   s->server.ssl = -1;
   // s->server->handler = did_req_handler;
 
-  // Connection to ION 
+  // Connection to ION
   s->client.socket_fd = prepare_client_socket("52.153.152.19", 443);
   s->client.epoll_fd = -1;
   s->client.ctx = init_ssl_client_ctx();
@@ -257,7 +267,10 @@ void *doc_fetch_worker_thread(struct service *s) {
   int sgxStatus;
   long ctx = s->client.ctx;
   long ssl;
-  std::string eph_did;
+  // std::string eph_did;
+  // DocFetchReq req;
+  char eph_did[MAX_DID_SIZE];
+  char base_addr[MAX_BASE_ADDR_SIZE];
 
   obv_debug("[%lx]Entering Doc Fetch event looop\n", pthread_self());
 
@@ -278,19 +291,28 @@ void *doc_fetch_worker_thread(struct service *s) {
 
   // keep this connection
   // If this disconnects make socket keep-alive
-  // sgxStatus = enc_wolfSSL_connect(enclave_id, &ret, s->client.ssl);
+  // sgxSntatus = enc_wolfSSL_connect(enclave_id, &ret, s->client.ssl);
   // if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
   //   obv_err("wolfSSL_connect failure\n");
   //   return NULL;
   // }
 
+  std::pair<std::string, std::string> req;
   while (1) {
-    if (docFetchQueue.dequeue(eph_did) == true) {
+    if (docFetchQueue.dequeue(req) == true) {
+
+      obv_debug("Dequeued %s/%s\n", req.first.c_str(), req.second.c_str());
 
       // Input: ssl handle to blockchain net
       // Enter sgx to fetch doc and return to requester
-      sgxStatus = ecall_handle_doc_fetch(enclave_id, s->client.ssl,
-                                         (char *)eph_did.c_str(), MAX_DID_SIZE);
+
+      strncpy(base_addr, req.first.c_str(), MAX_BASE_ADDR_SIZE);
+      strncpy(eph_did, req.second.c_str(), MAX_DID_SIZE);
+
+      sgxStatus =
+          ecall_handle_doc_fetch(enclave_id, s->client.ssl, base_addr,
+                                 MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
+
       if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
         printf("wolfSSL_connect failure\n");
         return NULL;
@@ -359,21 +381,32 @@ void *drf_recv_worker_thread(struct service *s) {
         // 	  {"baseAddress":"https://beta.discover.did.microsoft.com/1.0/identifiers/","identifier":"did:ion:O4eKUHlbRSphlUsHiJMnBM63ZX8jkkyiApKA6uzOtz5Tne"}
 
         // Handle DRF Here and extract DRF
-        Json::CharReaderBuilder builder;
-        const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
-        Json::Value query_info;
-
         std::string data = buf;
-
         data.erase(0, data.find("{"));
 
-        reader->parse(data.c_str(), data.c_str() + data.length(), &query_info,
-                      NULL);
+        Json::Reader reader;
+        Json::Value root;
 
-        std::cout << "Parsed result:" << data;
+        reader.parse(data, root);
 
-        // Queue eph_did request for docFetch Service
-        docFetchQueue.enqueue(data);
+        const Json::Value &baseAddr = root["baseAddress"];
+        const Json::Value &eph_did = root["identifier"];
+
+        // std::cout << baseAddr.asString() << std::endl;
+        // std::cout << eph_did.asString() << std::endl;
+
+        // Place docfetch request in queuem
+        // DocFetchReq* req = new DocFetchReq();
+
+        obv_print("Final URL:%s/%s\n", baseAddr.asCString(),
+                  eph_did.asCString());
+
+        auto req = std::make_pair(baseAddr.asString(), eph_did.asString());
+        docFetchQueue.enqueue(req);
+        // req.eph_did
+        //     .erase(0, )
+        //     // Queue eph_did request for docFetch Service
+        //     docFetchQueue.enqueue(req);
 
         // Convert it to std::string
         // std::string req_eph_did = eph_did;
@@ -416,20 +449,20 @@ void *did_req_worker_thread(struct service *s) {
   char did_method[MAX_DID_METHOD_SIZE];
   char eph_did[MAX_DID_SIZE];
   char req2ur[256];
-  obv_debug("[%lx]Entering DID Req event looop\n", pthread_self());
+  obv_debug("[%lx][DID_REQ] Entering DID Req event looop\n", pthread_self());
   while (1) {
     if (kill_services == 1)
       return NULL;
 
     events_cnt = epoll_wait(s->server.epoll_fd, events, EVENTS_BUFF_SZ, 0);
     if (events_cnt < 0) {
-      obv_err("[EventLoop] epoll_wait() error\n");
+      obv_err("[DID_REQ] epoll_wait() error\n");
       return NULL;
     }
     for (i = 0; i < events_cnt; i++) {
       // Event at server fd, new connection
       if (events[i].data.fd == s->server.socket_fd) {
-        obv_debug("[EventLoop] Accepting client\n");
+        obv_debug("[DID_REQ] Accepting client\n");
         thread_data.conn_fd = accept(s->server.socket_fd,
                                      (struct sockaddr *)&conn_addr, &addrlen);
         if (thread_data.conn_fd < 0)
@@ -446,26 +479,28 @@ void *did_req_worker_thread(struct service *s) {
 
         // Don't read/write ssl in untrusted for thread safety
         // Receive DID, create EphDID in enclave
+        // Enclave returns "did:{method}:{identifier}"
         sgxStatus =
-            ecall_handle_did_req(enclave_id, ssl, did_method,
-                                 MAX_DID_METHOD_SIZE, eph_did, MAX_DID_SIZE);
+            ecall_handle_did_req(enclave_id, ssl, eph_did, MAX_DID_SIZE);
         if (sgxStatus != SGX_SUCCESS)
           continue;
 
-        obv_debug("[%ld]Received DID Method: %s\n", pthread_self(), did_method);
-        obv_debug("[%ld]Received EphDID: %s\n", pthread_self(), eph_did);
+        obv_debug("[%lx][DID_REQ] Received DID Method: %s\n", pthread_self(),
+                  did_method);
+        obv_debug("[%lx][DID_REQ] Received EphDID: %s\n", pthread_self(),
+                  eph_did);
         snprintf(req2ur, sizeof(req2ur),
-                 "GET /1.0/identifiers/did:%s:%s "
+                 "GET /1.0/identifiers/%s "
                  "HTTP/1.1\r\nHost:localhost:8080\r\nUser-Agent: "
                  "curl/7.68.0\r\nAccept: */*\r\n\r\n",
-                 did_method, eph_did);
+                 eph_did);
 
         ret = send(s->client.socket_fd, req2ur, strlen(req2ur), 0);
         if (ret < 0) {
           obv_err("Error sending Eph_DID to UR\n");
           continue;
         }
-        obv_debug("[%ld]Sent : \n%s\n", pthread_self(), req2ur);
+        obv_debug("[%ld]Sent : \n%s", pthread_self(), req2ur);
         // For performance testing
         // close(thread_data.conn_fd);
         // Send ephDID to UR
@@ -515,7 +550,6 @@ int main(int argc, char *argv[]) {
   // for (i = 0; i < MAX_MAP_SIZE; ++i) {
   //   eph_ssl[i].is_empty = true;
   // }
-
 
   ret = init_did_req_service(&did_req_service);
   if (ret < 0) {

@@ -140,7 +140,7 @@ const char *domain2ip(const char *domain) { return "52.153.152.19"; }
 #define RESPONSE "HTTP/1.1 200 OK\r\n\r\n"
 
 void destroy_oblivira(int status) {
-
+  kill_services = 1;
   close(did_req_service.server.socket_fd);
   close(drf_recv_service.server.socket_fd);
   std::cout << "Shutting down oblivira" << std::endl;
@@ -314,10 +314,9 @@ void *doc_fetch_worker_thread(struct service *s) {
 
   std::pair<std::string, std::string> req;
   while (1) {
-    if (kill_services == 1)
-      return NULL;
-    if (docFetchQueue.dequeue(req) == true) {
 
+    if (docFetchQueue.dequeue(req) == true) {
+      
       obv_debug("Dequeued %s/%s\n", req.first.c_str(), req.second.c_str());
 
       // Input: ssl handle to blockchain net
@@ -326,19 +325,20 @@ void *doc_fetch_worker_thread(struct service *s) {
       strncpy(base_addr, req.first.c_str(), MAX_BASE_ADDR_SIZE);
       strncpy(eph_did, req.second.c_str(), MAX_DID_SIZE);
 
-      sgxStatus =
-	ecall_handle_doc_fetch(enclave_id, &requester_sock, s->client.ssl, base_addr,
-                                 MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
-      
+      sgxStatus = ecall_handle_doc_fetch(
+          enclave_id, &requester_sock, s->client.ssl, base_addr,
+          MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
+
       if (sgxStatus != SGX_SUCCESS || requester_sock == -1) {
         obv_err("ecall_handle_doc_fetch failure\n");
         return NULL;
       }
       // Now disconnect requester
-      obv_debug("Closing requester sock %d\n", requester_sock );
+      obv_debug("Closing requester sock %d\n", requester_sock);
       close(requester_sock);
     }
-    
+    if (kill_services == 1)
+      return NULL;
   }
 
   return NULL;
@@ -360,8 +360,6 @@ void *drf_recv_worker_thread(struct service *s) {
 
   obv_debug("[%lx]Entering DRF Recv event looop\n", pthread_self());
   while (1) {
-    if (kill_services == 1)
-      return NULL;
 
     events_cnt = epoll_wait(s->server.epoll_fd, events, EVENTS_BUFF_SZ, 0);
     if (events_cnt < 0) {
@@ -372,8 +370,8 @@ void *drf_recv_worker_thread(struct service *s) {
       // Event at server fd, new connection
       if (events[i].data.fd == s->server.socket_fd) {
         obv_debug("[EventLoop] Accepting connect from Driver\n");
-        conn_fd = accept(s->server.socket_fd,
-                                     (struct sockaddr *)&conn_addr, &addrlen);
+        conn_fd = accept(s->server.socket_fd, (struct sockaddr *)&conn_addr,
+                         &addrlen);
         if (conn_fd < 0) {
           obv_err("[DRF_RECV] Error accepting connection from driver\n");
           continue;
@@ -391,7 +389,7 @@ void *drf_recv_worker_thread(struct service *s) {
           obv_err("[DRF_RECV] Error receiving from driver\n");
           continue;
         }
-	close(conn_fd);
+        close(conn_fd);
         obv_debug("[%lx] DRF Received:\n %s\n", pthread_self(), buf);
 
         // POST / HTTP/1.1
@@ -456,6 +454,8 @@ void *drf_recv_worker_thread(struct service *s) {
         obv_debug("[%lx] We don't handle this case\n", pthread_self());
       }
     }
+    if (kill_services == 1)
+      return NULL;
   }
 }
 
@@ -491,9 +491,6 @@ void *did_req_worker_thread(struct service *s) {
   }
 
   while (1) {
-    if (kill_services == 1)
-      return NULL;
-
     events_cnt = epoll_wait(s->server.epoll_fd, events, EVENTS_BUFF_SZ, 0);
     if (events_cnt < 0) {
       obv_err("[DID_REQ] epoll_wait() error\n");
@@ -551,7 +548,7 @@ void *did_req_worker_thread(struct service *s) {
 
         close(sock_fd);
 
-	// Reconnect
+        // Reconnect
         sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
         clientaddr.sin_family = AF_INET;
@@ -601,6 +598,8 @@ void *did_req_worker_thread(struct service *s) {
         obv_err("[%lx] We don't handle this case\n", pthread_self());
       }
     }
+    if (kill_services == 1)
+      return NULL;
   }
 }
 

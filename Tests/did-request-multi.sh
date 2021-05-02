@@ -1,7 +1,7 @@
 #!/bin/bash
 
-NUM_TRIAL=20
-NUM_THREADS=8
+NUM_TRIAL=100
+NUM_THREADS=4
 
 pid_list=()
 function sigint_handler() {
@@ -20,10 +20,11 @@ do
     for thread in $(seq 1 $NUM_THREADS)
     do
 	pid=$(./did-request-single.sh & echo $!)
-	echo $pid
 	pid_list+=($pid)
     done
-    # sleep 0.1
+    sleep 0.1
+    echo -e "\n-------------------$i th iteration----------\n"
+    
 done
 
 

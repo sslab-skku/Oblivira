@@ -132,13 +132,14 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
 // Input ssl connection to blockchain net
 #define MAX_BC_REQ_SIZE 2048
 #define MAX_DID_DOC_SIZE 4096
-void ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
-                            char *eph_did, size_t ed_sz) {
+int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
+                           char *eph_did, size_t ed_sz) {
   // DIDMapEntry entry;
   char req2bc[MAX_BC_REQ_SIZE];
   char did_doc[MAX_DID_DOC_SIZE];
   int i, count;
   char c;
+  int requester_sock;
 
   printf("[Enclave] [doc_fetch] req_eph_did %s\n", eph_did);
   // 1. Convert eph_did to did
@@ -156,32 +157,41 @@ void ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
   WOLFSSL *ssl = GetSSL(sslID);
   if (ssl == NULL) {
     printf("[Enclave] [doc_fetch] invalid SSL\n");
-    return;
+    return -1;
   }
 
   auto ret = wolfSSL_connect(ssl);
   if (ret != SSL_SUCCESS) {
     printf("[Enclave] [doc_fetch] Failed connecting to BC server\n");
+    return -1;
   }
 
   printf("[Enclave] [doc_fetch] Sending to BC server:\n%s", req2bc);
   ret = wolfSSL_write(ssl, req2bc, strlen(req2bc));
-  if (ret != SSL_SUCCESS) {
+  if (ret < 0) {
     printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+    return -1;
   }
 
   // Blocking
   ret = wolfSSL_read(ssl, did_doc, MAX_DID_DOC_SIZE);
   if (ret < 0) {
     printf("[Enclave] [doc_fetch] Failed sending request to BC server\n");
+    return -1;
   }
   printf("[Enclave] [doc_fetch] Received from BC server:\n%s", did_doc);
 
   ret = wolfSSL_write(entry.second, did_doc, MAX_DID_DOC_SIZE);
   if (ret < 0) {
+
     printf("[Enclave] [doc_fetch] Failed returning document to requester\n");
+    return -1;
   }
-  return;
+
+  requester_sock = wolfSSL_get_fd(entry.second);
+  wolfSSL_free(entry.second);
+
+  return requester_sock;
   // 1. Convert Eph DID to DID
   // entry = did_map[req_eph_did];
   // printf("[Enclave] found entry: %s\n", entry.eph_did.c_str());

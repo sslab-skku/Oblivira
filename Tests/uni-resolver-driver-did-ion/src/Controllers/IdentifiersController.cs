@@ -106,7 +106,7 @@ namespace IdentityOverlayNetwork.Controllers
             
             if (result == true)
             {
-                Console.Out.WriteLine("Success to send to Oblivira: "+identifier);
+                Console.Out.WriteLine("Successfully forwarded to Oblivira: "+identifier);
             }
             return Json("");
         }

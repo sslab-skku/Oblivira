@@ -9,7 +9,7 @@ enclave {
 					[out, size=did_sz] char* eph_did,
 					size_t did_sz);
 
-       public void ecall_handle_doc_fetch(long sslID,
+       public int ecall_handle_doc_fetch(long sslID,
        	      	   			  [in, size=ba_sz] char* base_addr,
 					  size_t ba_sz,
        	      	   			  [in, size=ed_sz] char* eph_did,

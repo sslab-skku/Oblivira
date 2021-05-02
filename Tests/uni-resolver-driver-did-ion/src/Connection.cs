@@ -94,7 +94,8 @@ namespace IdentityOverlayNetwork
                 result = streamReader.ReadToEnd();
                 Console.Out.WriteLine(result);
             }
-
+	    // OBLIVIRA
+	    return true;
             // Check if we have got an OK back, if not
             // throw passing up the reason.
             if (!(httpResponse.StatusCode == HttpStatusCode.OK))

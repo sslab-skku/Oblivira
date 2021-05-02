@@ -2,3 +2,4 @@ etc
 build
 .vscode
 .clangd
+.cache

@@ -30,7 +30,7 @@ do
     end=`date +%s`
     runtime=$((end-start))
 
-    if [ $runtime -gt 20 ] 
+    if [ $runtime -gt 60 ] 
     then
 	echo "\n----------Time's up---$runtime seconds elapsed----------\n"
 	exit 1
@@ -39,10 +39,4 @@ do
     fi
     
 done
-
-
-
-
-
-
 

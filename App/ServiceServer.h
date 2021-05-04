@@ -7,8 +7,8 @@
 #define TLS_ENABLED 1
 #define TLS_DISABLED 0
 
-
-struct connection {
+struct connection
+{
   int socket_fd;
   int epoll_fd;
   long ctx;
@@ -18,31 +18,31 @@ struct connection {
   void *(*handler)(void *arg);
 };
 
-struct service {
+struct service
+{
   struct connection server;
   struct connection client;
 };
 
-struct thread_data {
+struct thread_data
+{
   struct service *service;
   int conn_fd;
   long ssl;
 };
 
 void *worker_thread(struct service *service);
-void init_service_server(void);
+int init_service_server(void);
 
-int init_service(struct service *service, int port, int is_server_tls,
-                 int is_client_tls, void *(*handler)(void *));
 
 int prepare_server_socket(int port);
-int prepare_client_socket(char *addr, int port);
+int prepare_client_socket(const char *addr, int port);
 int prepare_epoll(int sock);
 long init_ssl_server_ctx(void);
 long init_ssl_client_ctx(void);
 
 int create_tls_channel(struct service *service,
-		       struct thread_data *thread_data, int conn_fd);
+                       struct thread_data *thread_data, int conn_fd);
 long create_ssl_conn(long ctx, int conn_fd);
 
 void stop_worker_threads();

@@ -11,14 +11,12 @@ unsigned char dummy_buf[DATA_SIZE] = {'\0'};
 
 void printf(const char *fmt, ...)
 {
-
   char buf[BUFSIZ] = {'\0'};
   va_list ap;
   va_start(ap, fmt);
   vsnprintf(buf, BUFSIZ, fmt, ap);
   va_end(ap);
   ocall_print_string(buf);
-
 }
 
 int sprintf(char *buf, const char *fmt, ...)
@@ -127,46 +125,3 @@ int cache_access(const char *did, char *did_doc, char op_type)
     return 1;
 }
 #endif
-
-int get_dids(const char *eph_did, char *ret)
-{
-    for (int i = 0; i < MAX_MAP_SIZE; ++i)
-    {
-        if (!strncmp(map_did[i].eph_did, eph_did, strlen(map_did[i].eph_did) + 1) && map_did[i].is_used)
-        {
-            strncpy(ret, map_did[i].did, MAX_DID_SIZE);
-            return 0;
-        }
-    }
-    return -1;
-}
-
-int set_dids(const char *eph_did, const char *did)
-{
-    for (int i = 0; i < MAX_MAP_SIZE; ++i)
-    {
-        if (!map_did[i].is_used)
-        {
-            strncpy(map_did[i].eph_did, eph_did, MAX_DID_SIZE);
-            strncpy(map_did[i].did, did, MAX_DID_SIZE);
-            map_did[i].is_used = true;
-            return 0;
-        }
-    }
-    return -1;
-}
-
-int rm_dids(const char *eph_did)
-{
-    for (int i = 0; i < MAX_MAP_SIZE; ++i)
-    {
-        if (!strncmp(map_did[i].eph_did, eph_did, strlen(map_did[i].eph_did) + 1))
-        {
-            sgx_thread_mutex_lock(&map_did->m);
-            map_did[i].is_used = false;
-            sgx_thread_mutex_unlock(&map_did->m);
-            return 0;
-        }
-    }
-    return -1;
-}

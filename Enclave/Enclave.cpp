@@ -1,24 +1,25 @@
 #include "Enclave_t.h"
+
 #include "certs_test.h"
 #include "global_config.h"
 #include "ssl.h"
 #include "utils.h"
 #include "wolfssl/ssl.h"
-#include <cstring>
-#include <iostream>
+
 #include <map>
 #include <string>
 #include <tuple>
-#include <utility>
 
-std::map<std::string, std::pair<std::string, WOLFSSL *>> did_map;
+// Input ssl connection to blockchain net
+#define MAX_BC_REQ_SIZE 2048
+#define MAX_DID_DOC_SIZE 4096
 
-sgx_thread_mutex_t did_map::m;
-struct did_map map_did[MAX_MAP_SIZE];
+std::map<std::string, std::pair<std::string, long>> did_map;
 
 uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size,
                             uint32_t stash_size, uint32_t recursion_data_size,
-                            int8_t recursion_levels, uint8_t Z) {
+                            int8_t recursion_levels, uint8_t Z)
+{
 
 #ifdef OBLIVIRA_CACHE_ENABLED
   sgx_status_t ocall_status;
@@ -29,25 +30,23 @@ uint8_t ecall_createNewORAM(uint32_t max_blocks, uint32_t data_size,
   return 0;
 }
 
-int respond_did(WOLFSSL *ssl, std::string buf) {
-  buf = HTTP_RESPONSE + buf;
-  return wolfSSL_write(ssl, buf.c_str(), buf.length());
-}
-
-void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
-  int ret, cached;
+void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz)
+{
+  int ret, cached = -1;
   size_t len;
   char buf[DATA_SIZE];
   std::string input, new_did_method, did, new_eph_did;
 
   WOLFSSL *ssl = GetSSL(sslID);
-  if (ssl == NULL) {
-    obvenc_debug("[ENCLAVE][handle_did_req] GetSSL failure\n");
+  if (ssl == NULL)
+  {
+    obvenc_err("[ENCLAVE][handle_did_req] GetSSL failure\n");
     return;
   }
 
-  if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0) {
-    obvenc_debug("[ENCLAVE][handle_did_req] wolfSSL_read failure\n");
+  if ((ret = wolfSSL_read(ssl, buf, DATA_SIZE)) < 0)
+  {
+    obvenc_err("[ENCLAVE][handle_did_req] wolfSSL_read failure\n");
     return;
   }
   input = buf;
@@ -67,6 +66,27 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
   new_did_method = input;
   did = input;
 
+#if defined(OBLIVIRA_CACHE_ENABLED)
+  /* cache check */
+  obvenc_debug("[ENCLAVE][handle_did_req] checking cache...\n");
+  do
+  {
+    cached = cache_access(did.c_str(), buf, 'r'); // for synchronization
+  } while (cached == -1);
+
+  if (cached == 1)
+  {
+    obvenc_debug("[ENCLAVE][handle_did_req] cache hit!\n");
+    obvenc_debug("[ENCLAVE][handle_did_req] cached document:\n%s\n", buf);
+    if (wolfSSL_write(ssl, buf, MAX_DID_DOC_SIZE) != 0)
+    {
+      obvenc_err("[Enclave] [ENCLAVE][handle_did_req] Write to requester failed!\n");
+    }
+    RemoveSSL(sslID);
+    return;
+  }
+#endif
+
   new_did_method.erase(pos, new_did_method.npos);
   did.erase(0, pos + 1);
 
@@ -79,55 +99,23 @@ void ecall_handle_did_req(long sslID, char *eph_did, size_t did_sz) {
   // 4. Save DID, EPH_DID, ssl
 
   obvenc_debug("[Enclave][handle_did_req] DID Method:\'%s\'\nDID    :\'%s\'\nEph "
-         "DID:\'%s\'\n",
-         new_did_method.c_str(), did.c_str(), new_eph_did.c_str());
-
-  // DIDMapEntry new_entry;
+               "DID:\'%s\'\n",
+               new_did_method.c_str(), did.c_str(), new_eph_did.c_str());
 
   // Save to map
-  // new_entry.ssl = ssl;
-  // new_entry.did = did;
-  // new_entry.eph_did = new_eph_did;
-
-  auto pair = std::make_pair(did, ssl);
+  auto pair = std::make_pair(did, sslID);
   did_map[new_eph_did] = pair;
-  // strncpy(new_entry.did, did.c_str(), did_sz);
-  // strncpy(new_entry.eph_did, new_eph_did.c_str(), did_sz);
-
-  // did_map[new_eph_did] = new_entry;
-  // obvenc_debug("[Enclave] ssl: %ld\n", did_map[did].ssl);
 
   // Return
   strncpy(eph_did, new_eph_did.c_str(), did_sz);
-
-#if defined(OBLIVIRA_CACHE_ENABLED)
-  /* cache check */
-  do {
-    cached = cache_access(did.c_str(), buf, 'r'); // for synchronization
-  } while (cached == -1);
-
-  if (cached == 1) {
-    if (respond_did(ssl, buf) < 0) {
-      obvenc_debug(
-          "[Enclave] [ENCLAVE][handle_did_req] Write to requester failed!\n");
-    }
-    return;
-  }
-#endif
   return;
-
-#if defined(OBLIVIRA_PRINT_LOG)
-  // obvenc_debug("[Enclave] %s -> %s\n", did.c_str(), eph_did);
-#endif
 }
 
-// Input ssl connection to blockchain net
-#define MAX_BC_REQ_SIZE 2048
-#define MAX_DID_DOC_SIZE 4096
 int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
-                           char *eph_did, size_t ed_sz) {
+                           char *eph_did, size_t ed_sz)
+{
   // DIDMapEntry entry;
-  char req2bc[MAX_BC_REQ_SIZE];
+  char req2bc[MAX_BC_REQ_SIZE] = { '\0' };
   char did_doc[MAX_DID_DOC_SIZE];
   int i, count;
   char c;
@@ -142,46 +130,68 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
   // TODO: use base address
   snprintf(req2bc, sizeof(req2bc),
            "GET /1.0/identifiers/%s "
-           "HTTP/1.1\r\nHost:beta.discover.did.microsoft.com\r\nUser-Agent: "
-           "curl/7.68.0\r\nAccept: */*\r\n\r\n",
+           "HTTP/1.1\r\n"
+           "Host:beta.discover.did.microsoft.com\r\n"
+           "Connection: keep-alive\r\n"
+           "\r\n",
            entry.first.c_str());
 
   WOLFSSL *ssl = GetSSL(sslID);
-  if (ssl == NULL) {
+  if (ssl == NULL)
+  {
     obvenc_debug("[Enclave] [doc_fetch] invalid SSL\n");
     return -1;
   }
 
   auto ret = wolfSSL_connect(ssl);
-  if (ret != SSL_SUCCESS) {
+  if (ret != SSL_SUCCESS)
+  {
     obvenc_err("[Enclave] [doc_fetch] Failed connecting to BC server\n");
     return -1;
   }
 
   obvenc_debug("[Enclave] [doc_fetch] Sending to BC server:\n%s", req2bc);
   ret = wolfSSL_write(ssl, req2bc, strlen(req2bc));
-  if (ret == 0) {
+  if (ret == 0)
+  {
     obvenc_err("[Enclave] [doc_fetch] Failed sending request to BC server\n");
     return -1;
   }
 
   // Blocking
   ret = wolfSSL_read(ssl, did_doc, MAX_DID_DOC_SIZE);
-  if (ret == 0) {
+  if (ret == 0)
+  {
     obvenc_err("[Enclave] [doc_fetch] Failed sending request to BC server\n");
     return -1;
   }
+  did_doc[ret] = '\0';
   obvenc_debug("[Enclave] [doc_fetch] Received from BC server:\n%s", did_doc);
+  ssl = GetSSL(entry.second);
 
-  ret = wolfSSL_write(entry.second, did_doc, MAX_DID_DOC_SIZE);
-  if (ret == 0) {
+#if defined(OBLIVIRA_CACHE_ENABLED)
+  /* cache check */
+  int cached;
+  obvenc_debug("[ENCLAVE][doc_fetch] Writing to ORAM cache...\n");
+  obvenc_debug("[ENCLAVE][doc_fetch] DID: %s\n", entry.first.c_str());
+  obvenc_debug("[ENCLAVE][doc_fetch] document:\n%s\n", did_doc);
+  do
+  {
+    cached = cache_access(entry.first.c_str(), did_doc, 'w'); // for synchronization
+  } while (cached == -1);
+#endif
+
+  ret = wolfSSL_write(ssl, did_doc, MAX_DID_DOC_SIZE);
+  if (ret == 0)
+  {
     obvenc_err("[Enclave] [doc_fetch] Failed returning document to requester\n");
     return -1;
   }
 
-  requester_sock = wolfSSL_get_fd(entry.second);
-  wolfSSL_free(entry.second);
+  requester_sock = wolfSSL_get_fd(ssl);
+  RemoveSSL(entry.second);
+
+  did_map.erase(eph_did);
 
   return requester_sock;
-  
 }

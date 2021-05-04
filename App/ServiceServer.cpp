@@ -24,7 +24,8 @@ static std::vector<struct service *> services;
 
 static int kill_switch = 0;
 
-int prepare_server_socket(int port) {
+int prepare_server_socket(int port)
+{
 
   int sockfd;
   struct sockaddr_in serveraddr;
@@ -33,26 +34,30 @@ int prepare_server_socket(int port) {
   serveraddr.sin_port = htons(port);
   serveraddr.sin_addr.s_addr = INADDR_ANY;
 
-  if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
+  if ((sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+  {
     perror("socket(2) failed");
     exit(EXIT_FAILURE);
   }
 
   if (bind(sockfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) <
-      0) {
+      0)
+  {
     obv_err("Creating socket for %d failed\n", ntohs(serveraddr.sin_port));
     perror("bind(2) failed");
     exit(EXIT_FAILURE);
   }
 
-  if (listen(sockfd, SERVERBACKLOG) < 0) {
+  if (listen(sockfd, SERVERBACKLOG) < 0)
+  {
     perror("listen(2) failed");
     exit(EXIT_FAILURE);
   }
   return sockfd;
 }
 
-int prepare_client_socket(char *addr, int port) {
+int prepare_client_socket(const char *addr, int port)
+{
   int ret;
   int sockfd;
   struct sockaddr_in clientaddr;
@@ -62,21 +67,32 @@ int prepare_client_socket(char *addr, int port) {
   clientaddr.sin_family = AF_INET;
   clientaddr.sin_port = htons(port);
   inet_pton(AF_INET, addr, &clientaddr.sin_addr);
+  struct timeval timeout;
+  timeout.tv_sec = 70;
+  timeout.tv_usec = 0;
 
-  if (connect(sockfd, (struct sockaddr *)&clientaddr, sizeof(clientaddr)) < 0) {
-    perror("Error connecting to client ");
+  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,
+                 sizeof(timeout)) < 0)
+  {
+    obv_err("Error setting socket timeout failed\n");
   }
 
+  if (connect(sockfd, (struct sockaddr *)&clientaddr, sizeof(clientaddr)) < 0)
+  {
+    perror("Error connecting to client ");
+  }
 
   return sockfd;
 }
 
-int prepare_epoll(int sock) {
+int prepare_epoll(int sock)
+{
   int epoll_fd;
   struct epoll_event epevent;
   epevent.events = EPOLLIN | EPOLLET;
   epevent.data.fd = sock;
-  if ((epoll_fd = epoll_create(1)) < 0) {
+  if ((epoll_fd = epoll_create(1)) < 0)
+  {
     perror("epoll_create(2) failed");
     exit(EXIT_FAILURE);
   }
@@ -84,7 +100,8 @@ int prepare_epoll(int sock) {
   // epevent.events = EPOLLIN | EPOLLET;
   // epevent.data.fd = sock;
 
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &epevent) < 0) {
+  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &epevent) < 0)
+  {
     perror("epoll_ctl(2) failed on main server socket");
     exit(EXIT_FAILURE);
   }
@@ -93,58 +110,63 @@ int prepare_epoll(int sock) {
 }
 
 // Returns ssl
-long create_ssl_conn(long ctx, int conn_fd) {
+long create_ssl_conn(long ctx, int conn_fd)
+{
   int sgxStatus, ret;
   long ssl;
   sgxStatus = enc_wolfSSL_new(enclave_id, &ssl, ctx);
-  if (sgxStatus != SGX_SUCCESS || ssl < 0) {
+  if (sgxStatus != SGX_SUCCESS || ssl < 0)
+  {
     obv_err("wolfSSL_new failure\n");
     return -1;
   }
-#if defined(OBLIVIRA_PRINT_LOG)
-  obv_err("[TLS] context creation successful\n");
-#endif
+  obv_debug("[TLS] context creation successful\n");
   sgxStatus = enc_wolfSSL_set_fd(enclave_id, &ret, ssl, conn_fd);
-  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS) {
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
+  {
     obv_err("wolfSSL_set_fd failure\n");
     return -1;
   }
-#if defined(OBLIVIRA_PRINT_LOG)
   obv_debug("[TLS] setting socket fd successful\n");
-#endif
   return ssl;
 }
 
-
 // Initialize SSL Context
-long init_ssl_server_ctx(void) {
+long init_ssl_server_ctx(void)
+{
   int sgxStatus;
   long ctx;
 
-  if (ecall_init_ctx_server(enclave_id, &ctx) != SGX_SUCCESS && ctx < 0) {
-    std::cout
-        << "[OBLIVIRA][init_ssl_server_ctx] Initializing server context failed!"
-        << std::endl;
+  if (ecall_init_ctx_server(enclave_id, &ctx) != SGX_SUCCESS && ctx < 0)
+  {
+    obv_err("Initializing server context failed!\n");
+    return -1;
   }
 
   return ctx;
 }
 
-long init_ssl_client_ctx(void) {
+long init_ssl_client_ctx(void)
+{
   int sgxStatus;
   long ctx;
 
-  if (ecall_init_ctx_client(enclave_id, &ctx) != SGX_SUCCESS && ctx < 0) {
-    std::cout
-        << "[OBLIVIRA][init_ssl_client_ctx] Initializing client context failed!"
-        << std::endl;
+  if (ecall_init_ctx_client(enclave_id, &ctx) != SGX_SUCCESS && ctx < 0)
+  {
+    obv_err("Initializing client context failed!\n");
+    return -1;
   }
 
   return ctx;
 }
 
-void init_service_server() {
-  int sgxStatus;
-  enc_wolfSSL_Init(enclave_id, &sgxStatus);
+int init_service_server()
+{
+  int ret;
+  if (enc_wolfSSL_Init(enclave_id, &ret) != SGX_SUCCESS && ret != WOLFSSL_SUCCESS)
+  {
+    obv_err("Initializing wolfssl failed!\n");
+    return -1;
+  }
+  return 0;
 }
-

@@ -61,7 +61,6 @@ SafeQueue<std::pair<std::string, std::string>> docFetchQueue;
 
 static int did_req_epoll_fd, drf_recv_epoll_fd;
 
-
 const char *extract_blockchain_url(const char *input)
 {
   return "beta.discover.did.microsoft.com";
@@ -216,6 +215,27 @@ int init_drf_recv_service(struct service *s)
   return 0;
 }
 
+int reconnect(struct service *s, const char *addr, int port)
+{
+  int ret, sgxStatus;
+  int sock = prepare_client_socket(addr, port);
+  sgxStatus = enc_wolfSSL_new(enclave_id, &s->client.ssl, s->client.ctx);
+  if (sgxStatus != SGX_SUCCESS || s->client.ssl < 0)
+  {
+    obv_err("wolfSSL_new failure\n");
+    return NULL;
+  }
+
+  sgxStatus =
+      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, socket_fd);
+  if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
+  {
+    obv_err("wolfSSL_set_fd failure\n");
+    return NULL;
+  }
+  return sock;
+}
+
 void *did_req_worker_thread(struct service *s)
 {
   int i, ret;
@@ -328,7 +348,8 @@ void *did_req_worker_thread(struct service *s)
             perror("Error connecting to client ");
           }
         }
-        else{
+        else
+        {
           close(thread_data.conn_fd);
         }
       }
@@ -345,14 +366,15 @@ void *did_req_worker_thread(struct service *s)
 
 void *doc_fetch_worker_thread(struct service *s)
 {
-  int ret;
-  int sgxStatus;
+  int ret, sgxStatus, error = 0;
   long ctx = s->client.ctx;
   int socket_fd;
   long ssl;
 
   char eph_did[MAX_DID_SIZE];
   char base_addr[MAX_BASE_ADDR_SIZE];
+
+  socklen_t len = sizeof(error);
 
   int requester_sock;
   obv_debug("[%lx]Entering Doc Fetch event looop\n", pthread_self());
@@ -394,29 +416,34 @@ void *doc_fetch_worker_thread(struct service *s)
   std::pair<std::string, std::string> req;
   while (1)
   {
-
     if (docFetchQueue.dequeue(req) == true)
     {
-
       obv_debug("Dequeued %s/%s\n", req.first.c_str(), req.second.c_str());
 
       // Input: ssl handle to blockchain net
       // Enter sgx to fetch doc and return to requester
-
       strncpy(base_addr, req.first.c_str(), MAX_BASE_ADDR_SIZE);
       strncpy(eph_did, req.second.c_str(), MAX_DID_SIZE);
-
-      sgxStatus = ecall_handle_doc_fetch(
-          enclave_id, &requester_sock, s->client.ssl, base_addr,
-          MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
-
-      if (sgxStatus != SGX_SUCCESS || requester_sock == -1)
+      do
       {
-        obv_err("ecall_handle_doc_fetch failure\n");
+        sgxStatus = ecall_handle_doc_fetch(
+            enclave_id, &requester_sock, s->client.ssl, base_addr,
+            MAX_BASE_ADDR_SIZE, eph_did, MAX_DID_SIZE);
 
-        // Reconnect and retry if connection problem
-        return NULL;
-      }
+        if (sgxStatus != SGX_SUCCESS || requester_sock == -1)
+        {
+          obv_err("ecall_handle_doc_fetch failure\n");
+          enc_wolfssl_free(enclave_id, s->client.ssl);
+          close(socket_fd);
+          if ((socket_fd = reconnect(s, "52.153.152.19", 443)) < 0)
+          {
+            obv_err("Creating reconnection socket failed!\n");
+            return NULL;
+          }
+          continue;
+        }
+        break;
+      } while (1);
       // Now disconnect requester
       obv_debug("Closing requester sock %d\n", requester_sock);
       close(requester_sock);
@@ -586,7 +613,8 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  if(init_oram_cache() < 0){
+  if (init_oram_cache() < 0)
+  {
     obv_err("Error Initializing ORAM cache!\n");
     exit(1);
   }

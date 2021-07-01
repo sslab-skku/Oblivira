@@ -25,7 +25,7 @@
 #define RECURSION_DATA_SIZE         64 // recursion_data_size can be used to tailor the data size of the recursive ORAM trees, since currently OC uses ids of 4 bytes, recursion sie of 64, gives us a compression factor 16 with each level of recrusion.
 #define SIZE_Z                      4 // Z is the number of blocks in a bucket of the ORAMTree, typically PathORAM uses Z=4
 
-#define OBLIVIRA_CACHE_ENABLED
+// #define OBLIVIRA_CACHE_ENABLED
 // #define OBLIVIRA_PRINT_LOG
 
 // Inline functions

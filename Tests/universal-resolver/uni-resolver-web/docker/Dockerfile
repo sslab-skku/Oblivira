@@ -15,16 +15,14 @@ RUN cd /opt/universal-resolver/uni-resolver-local && mvn clean install -N -Dskip
 RUN cd /opt/universal-resolver/uni-resolver-web && mvn clean install package -N -DskipTests
 
 # build image
+
 FROM jetty:9.4-jre11
 MAINTAINER Markus Sabadello <markus@danubetech.com>
 
 COPY --from=build /opt/universal-resolver/uni-resolver-web/target/*.war /var/lib/jetty/webapps/ROOT.war
 COPY --from=build /opt/universal-resolver/uni-resolver-web/config.json /var/lib/jetty/
 
-RUN echo -e "\n\njetty.threadPool.maxThreads=4\njetty.threadPool.minThreads=0" >> /var/lib/jetty/start.d/server.ini
-
 # done
 
 EXPOSE 8080
-CMD java -jar /usr/local/jetty/start.jar --add-to-start=jmx,stats,threadpool,threadlimit
-CMD java -jar /usr/local/jetty/start.jar -Djetty.http.port=8080
+CMD java -Djetty.http.port=8080 -jar /usr/local/jetty/start.jar

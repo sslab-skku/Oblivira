@@ -40,7 +40,7 @@ LocalStorage *ls = new LocalStorage();
 
 #define DRF_MAX_LEN 2048
 
-#define UR_ADDR "115.145.154.183"
+#define UR_ADDR "127.0.0.1"
 #define UNIV_REQ \
   "GET /1.0/identifiers/%s HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
@@ -227,7 +227,7 @@ int reconnect(struct service *s, const char *addr, int port)
   }
 
   sgxStatus =
-      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, socket_fd);
+      enc_wolfSSL_set_fd(enclave_id, &ret, s->client.ssl, s->client.socket_fd);
   if (sgxStatus != SGX_SUCCESS || ret != SSL_SUCCESS)
   {
     obv_err("wolfSSL_set_fd failure\n");
@@ -433,7 +433,7 @@ void *doc_fetch_worker_thread(struct service *s)
         if (sgxStatus != SGX_SUCCESS || requester_sock == -1)
         {
           obv_err("ecall_handle_doc_fetch failure\n");
-          enc_wolfssl_free(enclave_id, s->client.ssl);
+          enc_wolfSSL_free(enclave_id, s->client.ssl);
           close(socket_fd);
           if ((socket_fd = reconnect(s, "52.153.152.19", 443)) < 0)
           {

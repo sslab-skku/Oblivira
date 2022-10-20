@@ -135,6 +135,7 @@ int ecall_handle_doc_fetch(long sslID, char *base_addr, size_t ba_sz,
            "Connection: keep-alive\r\n"
            "\r\n",
            entry.first.c_str());
+  obvenc_debug("[Enclave] [doc_fetch] request doc:\n%s\n", req2bc);
 
   WOLFSSL *ssl = GetSSL(sslID);
   if (ssl == NULL)
